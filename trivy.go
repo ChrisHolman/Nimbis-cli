@@ -52,13 +52,18 @@ func (t *TrivyIaCScanner) parseResults(output []byte) ([]Finding, error) {
 	var findings []Finding
 	for _, result := range trivyResults.Results {
 		for _, misconfig := range result.Misconfigurations {
+			file := ""
+			if misconfig.CauseMetadata.StartLine > 0 {
+				file = result.Target
+			}
+			
 			finding := Finding{
 				Type:        ScanTypeIaC,
 				Scanner:     "trivy",
 				Severity:    misconfig.Severity,
 				Title:       misconfig.Title,
 				Description: misconfig.Description,
-				File:        misconfig.CauseMetadata.StartLine > 0 ? result.Target : "",
+				File:        file,
 				Line:        misconfig.CauseMetadata.StartLine,
 				RuleID:      misconfig.ID,
 				References:  misconfig.References,
