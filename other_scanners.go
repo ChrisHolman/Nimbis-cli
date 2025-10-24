@@ -281,6 +281,11 @@ func (g *GrypeScanner) parseResults(output []byte) ([]Finding, error) {
 			}
 		}
 
+		fixedVersion := ""
+		if len(match.Vulnerability.Fix.Versions) > 0 {
+			fixedVersion = match.Vulnerability.Fix.Versions[0]
+		}
+
 		finding := Finding{
 			Type:        ScanTypeSCA,
 			Scanner:     "grype",
@@ -291,9 +296,9 @@ func (g *GrypeScanner) parseResults(output []byte) ([]Finding, error) {
 			CVSS:        cvss,
 			References:  match.Vulnerability.URLs,
 			Extra: map[string]string{
-				"package":          match.Artifact.Name,
+				"package":           match.Artifact.Name,
 				"installed_version": match.Artifact.Version,
-				"fixed_version":    match.Vulnerability.Fix.Versions[0],
+				"fixed_version":     fixedVersion,
 			},
 		}
 		findings = append(findings, finding)
