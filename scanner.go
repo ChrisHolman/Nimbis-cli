@@ -108,8 +108,82 @@ func (s *Scanner) checkScannerAvailability() {
 	fmt.Printf("  Found %d available scanner(s)\n\n", len(availableScanners))
 	
 	if len(availableScanners) == 0 {
-		fmt.Println("❌ No scanners available. Please install at least one scanner.")
-		fmt.Println("\nRecommended installations:")
+		// Offer to auto-install
+		fmt.Println("❌ No scanners available.")
+		
+		shouldInstall := s.config.AutoInstall
+		if !shouldInstall {
+			fmt.Println("\nWould you like to auto-install scanners? (y/n)")
+			fmt.Print("> ")
+			
+			var response string
+			fmt.Scanln(&response)
+			shouldInstall = strings.ToLower(strings.TrimSpace(response)) == "y"
+		}
+		
+		if shouldInstall {
+			installer, err := NewScannerInstaller()
+			if err != nil {
+				fmt.Printf("Failed to create installer: %v\n", err)
+				os.Exit(1)
+			}
+			
+			if err := installer.InstallAll(); err != nil {
+				fmt.Printf("Installation failed: %v\n", err)
+				os.Exit(1)
+			}
+			
+			installer.AddToPath()
+			
+			// Re-check availability after installation
+			fmt.Println("🔧 Re-checking scanner availability...")
+			s.scanners = make(map[string]ScannerInterface)
+			
+			if s.config.ScanTypes.IaC {
+				s.scanners["trivy-iac"] = NewTrivyIaCScanner()
+				s.scanners["checkov"] = NewCheckovScanner()
+			}
+			
+			if s.config.ScanTypes.Secrets {
+				s.scanners["trufflehog"] = NewTruffleHogScanner()
+				s.scanners["trivy-secret"] = NewTrivySecretScanner()
+			}
+			
+			if s.config.ScanTypes.SAST {
+				s.scanners["opengrep"] = NewOpenGrepScanner()
+			}
+			
+			if s.config.ScanTypes.SCA {
+				s.scanners["trivy-vuln"] = NewTrivyVulnScanner()
+				s.scanners["grype"] = NewGrypeScanner()
+			}
+			
+			if s.config.ScanTypes.SBOM {
+				s.scanners["syft"] = NewSyftScanner()
+			}
+			
+			availableScanners = []string{}
+			for name, scanner := range s.scanners {
+				if scanner.IsAvailable() {
+					availableScanners = append(availableScanners, name)
+					fmt.Printf("  ✓ %s\n", scanner.Name())
+				} else {
+					delete(s.scanners, name)
+				}
+			}
+			
+			if len(availableScanners) == 0 {
+				fmt.Println("\n❌ Installation completed but scanners still not available.")
+				fmt.Println("Please check your system PATH or install manually.")
+				os.Exit(1)
+			}
+			
+			s.results.Metadata.Scanners = availableScanners
+			fmt.Printf("\n✅ Ready to scan with %d scanner(s)\n\n", len(availableScanners))
+			return
+		}
+		
+		fmt.Println("\nManual installation instructions:")
 		fmt.Println("  • Trivy: https://aquasecurity.github.io/trivy/latest/getting-started/installation/")
 		fmt.Println("  • TruffleHog: https://github.com/trufflesecurity/trufflehog")
 		fmt.Println("  • Checkov: pip install checkov")
