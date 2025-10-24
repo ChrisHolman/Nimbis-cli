@@ -59,17 +59,19 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
+          BINARY_NAME="nimbis-${GOOS}-${GOARCH}"
           if [ "$GOOS" = "windows" ]; then
-            go build -ldflags="-w -s" -o securescan-${GOOS}-${GOARCH}.exe .
-          else
-            go build -ldflags="-w -s" -o securescan-${GOOS}-${GOARCH} .
+            BINARY_NAME="${BINARY_NAME}.exe"
           fi
+          go build -ldflags="-w -s" -o "${BINARY_NAME}" .
+          ls -lh nimbis-*
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: nimbis-${{ matrix.goos }}-${{ matrix.goarch }}
           path: nimbis-*
+          if-no-files-found: error
 
   docker:
     name: Build Docker Image
