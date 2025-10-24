@@ -84,12 +84,12 @@ lint: ## Run linter
 
 fmt: ## Format code
 	@echo "Formatting code..."
-	$(GOCMD) fmt ./...
+	gofmt -w .
 	@echo "Formatting complete"
 
 vet: ## Run go vet
 	@echo "Running go vet..."
-	$(GOCMD) vet ./...
+	go vet ./...
 
 docker-build: ## Build Docker image
 	@echo "Building Docker image..."
