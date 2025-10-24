@@ -13,6 +13,7 @@ type ScanConfig struct {
 	FailOnSeverity string
 	Parallel       bool
 	Verbose        bool
+	AutoInstall    bool
 	ScanTypes      ScanTypes
 }
 
