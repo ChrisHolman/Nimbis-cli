@@ -40,11 +40,22 @@ jobs:
     needs: [test]
     strategy:
       matrix:
-        goos: [linux, darwin, windows]
-        goarch: [amd64, arm64]
-        exclude:
-          - goos: windows
+        include:
+          - goos: linux
+            goarch: amd64
+            ext: ''
+          - goos: linux
             goarch: arm64
+            ext: ''
+          - goos: darwin
+            goarch: amd64
+            ext: ''
+          - goos: darwin
+            goarch: arm64
+            ext: ''
+          - goos: windows
+            goarch: amd64
+            ext: '.exe'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -59,18 +70,15 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          BINARY_NAME="nimbis-${GOOS}-${GOARCH}"
-          if [ "$GOOS" = "windows" ]; then
-            BINARY_NAME="${BINARY_NAME}.exe"
-          fi
+          BINARY_NAME="nimbis-${GOOS}-${GOARCH}${{ matrix.ext }}"
           go build -ldflags="-w -s" -o "${BINARY_NAME}" .
           ls -lh nimbis-*
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nimbis-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: nimbis-*
+          name: nimbis-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+          path: nimbis-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
           if-no-files-found: error
 
   docker:
