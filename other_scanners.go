@@ -250,15 +250,21 @@ func (g *GrypeScanner) Scan(config *ScanConfig) ([]Finding, error) {
 	args := []string{
 		"dir:" + config.TargetPath,
 		"-o", "json",
-		"--quiet",
+		"-q",
 	}
 
 	cmd := exec.Command("grype", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		// Grype returns non-zero when vulnerabilities found
 		if len(output) == 0 {
 			return nil, fmt.Errorf("grype failed: %w", err)
 		}
+	}
+
+	// Grype might return empty results
+	if len(output) == 0 {
+		return []Finding{}, nil
 	}
 
 	return g.parseResults(output)
