@@ -146,8 +146,8 @@ func (f *Formatter) formatTable() (string, error) {
 	}
 
 	// Header
-	fmt.Fprintln(w, "TYPE\tSEVERITY\tSCANNER\tFILE\tLINE\tTITLE")
-	fmt.Fprintln(w, "----\t--------\t-------\t----\t----\t-----")
+	_, _ = fmt.Fprintln(w, "TYPE\tSEVERITY\tSCANNER\tFILE\tLINE\tTITLE")
+	_, _ = fmt.Fprintln(w, "----\t--------\t-------\t----\t----\t-----")
 
 	// Findings
 	for _, finding := range allFindings {
@@ -156,7 +156,7 @@ func (f *Formatter) formatTable() (string, error) {
 			line = fmt.Sprintf("%d", finding.Line)
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			finding.Type,
 			finding.Severity,
 			finding.Scanner,
@@ -166,7 +166,7 @@ func (f *Formatter) formatTable() (string, error) {
 		)
 	}
 
-	w.Flush()
+	_ = w.Flush()
 	return buf.String(), nil
 }
 
