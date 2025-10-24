@@ -1,10 +1,28 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os/exec"
 )
+
+// cleanJSONOutput removes non-JSON content from scanner output
+func cleanJSONOutput(output []byte) []byte {
+	// Find the first '{' or '['
+	start := bytes.IndexAny(output, "{[")
+	if start == -1 {
+		return output
+	}
+	
+	// Find the last '}' or ']'
+	end := bytes.LastIndexAny(output, "}]")
+	if end == -1 {
+		return output
+	}
+	
+	return output[start : end+1]
+}
 
 // TrivyIaCScanner implements IaC scanning using Trivy
 type TrivyIaCScanner struct{}
@@ -27,6 +45,7 @@ func (t *TrivyIaCScanner) Scan(config *ScanConfig) ([]Finding, error) {
 		"config",
 		"--format", "json",
 		"--severity", "LOW,MEDIUM,HIGH,CRITICAL",
+		"--quiet",
 		config.TargetPath,
 	}
 
@@ -43,6 +62,8 @@ func (t *TrivyIaCScanner) Scan(config *ScanConfig) ([]Finding, error) {
 }
 
 func (t *TrivyIaCScanner) parseResults(output []byte) ([]Finding, error) {
+	output = cleanJSONOutput(output)
+	
 	var trivyResults TrivyConfigResults
 	if err := json.Unmarshal(output, &trivyResults); err != nil {
 		return nil, fmt.Errorf("failed to parse trivy output: %w", err)
@@ -96,6 +117,7 @@ func (t *TrivySecretScanner) Scan(config *ScanConfig) ([]Finding, error) {
 		"fs",
 		"--scanners", "secret",
 		"--format", "json",
+		"--quiet",
 		config.TargetPath,
 	}
 
@@ -111,6 +133,8 @@ func (t *TrivySecretScanner) Scan(config *ScanConfig) ([]Finding, error) {
 }
 
 func (t *TrivySecretScanner) parseSecretResults(output []byte) ([]Finding, error) {
+	output = cleanJSONOutput(output)
+	
 	var trivyResults TrivySecretResults
 	if err := json.Unmarshal(output, &trivyResults); err != nil {
 		return nil, fmt.Errorf("failed to parse trivy secret output: %w", err)
@@ -158,6 +182,7 @@ func (t *TrivyVulnScanner) Scan(config *ScanConfig) ([]Finding, error) {
 		"--scanners", "vuln",
 		"--format", "json",
 		"--severity", "LOW,MEDIUM,HIGH,CRITICAL",
+		"--quiet",
 		config.TargetPath,
 	}
 
@@ -173,6 +198,8 @@ func (t *TrivyVulnScanner) Scan(config *ScanConfig) ([]Finding, error) {
 }
 
 func (t *TrivyVulnScanner) parseVulnResults(output []byte) ([]Finding, error) {
+	output = cleanJSONOutput(output)
+	
 	var trivyResults TrivyVulnResults
 	if err := json.Unmarshal(output, &trivyResults); err != nil {
 		return nil, fmt.Errorf("failed to parse trivy vuln output: %w", err)
