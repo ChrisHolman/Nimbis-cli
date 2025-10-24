@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -223,9 +224,9 @@ func (s *Scanner) outputResults() error {
 
 // printSummary prints a human-readable summary
 func (s *Scanner) printSummary() {
-	fmt.Println("\n" + "═"*60)
+	fmt.Println("\n" + strings.Repeat("═", 60))
 	fmt.Println("📊 SCAN SUMMARY")
-	fmt.Println("═"*60)
+	fmt.Println(strings.Repeat("═", 60))
 	fmt.Printf("Total Findings: %d\n", s.results.Summary.TotalFindings)
 	fmt.Printf("Scan Duration: %s\n", s.results.Summary.ScanDuration)
 	
@@ -246,7 +247,7 @@ func (s *Scanner) printSummary() {
 		}
 	}
 	
-	fmt.Println("═"*60)
+	fmt.Println(strings.Repeat("═", 60))
 }
 
 // checkFailCondition checks if the scan should fail based on severity threshold
