@@ -11,13 +11,15 @@ var (
 	version = "0.1.0"
 	
 	// Global flags
-	targetPath    string
-	outputFormat  string
-	outputFile    string
-	severity      string
+	targetPath     string
+	outputFormat   string
+	outputFile     string
+	severity       string
 	failOnSeverity string
-	parallel      bool
-	verbose       bool
+	parallel       bool
+	verbose        bool
+	autoInstall    bool
+	quiet          bool
 	
 	// Scan type flags
 	scanAll       bool
@@ -47,6 +49,8 @@ to identify IaC misconfigurations, secrets, SAST issues, SCA vulnerabilities, an
 	rootCmd.PersistentFlags().StringVar(&failOnSeverity, "fail-on", "CRITICAL", "Exit with error if issues of this severity or higher are found")
 	rootCmd.PersistentFlags().BoolVarP(&parallel, "parallel", "p", true, "Run scanners in parallel")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+	rootCmd.PersistentFlags().BoolVar(&autoInstall, "auto-install", false, "Automatically install missing scanners")
+	rootCmd.PersistentFlags().BoolVarP(&quiet, "quiet", "q", false, "Minimal output - only show summary (saves full results to file)")
 
 	// Scan type flags
 	rootCmd.Flags().BoolVar(&scanAll, "all", false, "Run all scan types")
@@ -77,6 +81,8 @@ func runScan(cmd *cobra.Command, args []string) error {
 		FailOnSeverity: failOnSeverity,
 		Parallel:       parallel,
 		Verbose:        verbose,
+		AutoInstall:    autoInstall,
+		Quiet:          quiet,
 		ScanTypes: ScanTypes{
 			IaC:       scanAll || scanIaC,
 			Secrets:   scanAll || scanSecrets,
