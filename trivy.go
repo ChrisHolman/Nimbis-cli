@@ -217,19 +217,25 @@ func (t *TrivyVulnScanner) parseVulnResults(output []byte) ([]Finding, error) {
 				}
 			}
 
+			title := vuln.VulnerabilityID
+			if vuln.Title != "" {
+				title = vuln.Title
+			}
+
 			finding := Finding{
 				Type:        ScanTypeSCA,
 				Scanner:     "trivy",
 				Severity:    vuln.Severity,
-				Title:       vuln.Title,
+				Title:       title,
 				Description: vuln.Description,
+				File:        result.Target, // Add the manifest file
 				CVE:         vuln.VulnerabilityID,
 				CVSS:        cvss,
 				References:  vuln.References,
 				Extra: map[string]string{
-					"package":          vuln.PkgName,
+					"package":           vuln.PkgName,
 					"installed_version": vuln.InstalledVersion,
-					"fixed_version":    vuln.FixedVersion,
+					"fixed_version":     vuln.FixedVersion,
 				},
 			}
 			findings = append(findings, finding)
