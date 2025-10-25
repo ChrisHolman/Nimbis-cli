@@ -272,28 +272,111 @@ func (s *Scanner) calculateSummary() {
 
 // outputResults outputs the scan results
 func (s *Scanner) outputResults() error {
-	formatter := NewFormatter(s.config.OutputFormat, s.results)
-	
-	output, err := formatter.Format()
-	if err != nil {
-		return fmt.Errorf("failed to format output: %w", err)
+	// Always save full results to file if in quiet mode
+	if s.config.Quiet && s.config.OutputFile == "" {
+		s.config.OutputFile = "nimbis-results.json"
+		s.config.OutputFormat = "json"
 	}
 	
-	// Write to file or stdout
+	// Generate formatted output for file
 	if s.config.OutputFile != "" {
+		formatter := NewFormatter(s.config.OutputFormat, s.results)
+		output, err := formatter.Format()
+		if err != nil {
+			return fmt.Errorf("failed to format output: %w", err)
+		}
+		
 		if err := os.WriteFile(s.config.OutputFile, []byte(output), 0644); err != nil {
 			return fmt.Errorf("failed to write output file: %w", err)
 		}
-		fmt.Printf("\n📄 Results saved to: %s\n", s.config.OutputFile)
-	} else {
-		fmt.Println("\n" + output)
+		
+		if !s.config.Quiet {
+			fmt.Printf("\n📄 Full results saved to: %s\n", s.config.OutputFile)
+		}
 	}
 	
-	// Print summary
-	s.printSummary()
+	// Print summary (always shown unless quiet mode with no findings)
+	if !s.config.Quiet || s.results.Summary.TotalFindings > 0 {
+		s.printSummary()
+		
+		// Print brief findings overview
+		if s.results.Summary.TotalFindings > 0 {
+			s.printBriefFindings()
+		}
+	}
 	
 	// Check if we should fail based on severity
 	return s.checkFailCondition()
+}
+
+// printBriefFindings prints a brief overview of findings
+func (s *Scanner) printBriefFindings() {
+	allFindings := append(s.results.IaCResults, s.results.SecretResults...)
+	allFindings = append(allFindings, s.results.SASTResults...)
+	allFindings = append(allFindings, s.results.SCAResults...)
+	
+	if len(allFindings) == 0 {
+		return
+	}
+	
+	fmt.Println("\n" + strings.Repeat("─", 60))
+	fmt.Println("📋 FINDINGS OVERVIEW")
+	fmt.Println(strings.Repeat("─", 60))
+	
+	// Group by severity
+	severityGroups := map[string][]Finding{
+		SeverityCritical: {},
+		SeverityHigh:     {},
+		SeverityMedium:   {},
+		SeverityLow:      {},
+	}
+	
+	for _, f := range allFindings {
+		severityGroups[f.Severity] = append(severityGroups[f.Severity], f)
+	}
+	
+	// Print each severity group
+	for _, sev := range []string{SeverityCritical, SeverityHigh, SeverityMedium, SeverityLow} {
+		findings := severityGroups[sev]
+		if len(findings) == 0 {
+			continue
+		}
+		
+		emoji := getSeverityEmoji(sev)
+		fmt.Printf("\n%s %s (%d issues)\n", emoji, sev, len(findings))
+		fmt.Println(strings.Repeat("─", 60))
+		
+		for i, f := range findings {
+			// Limit to 5 per severity level for readability
+			if i >= 5 {
+				fmt.Printf("   ... and %d more %s issues\n", len(findings)-5, sev)
+				break
+			}
+			
+			// Print brief finding
+			location := ""
+			if f.File != "" {
+				location = fmt.Sprintf(" in %s", truncateMiddle(f.File, 35))
+				if f.Line > 0 {
+					location += fmt.Sprintf(":%d", f.Line)
+				}
+			}
+			
+			fmt.Printf("\n   %s%s\n", truncate(f.Title, 55), location)
+			
+			if f.Remediation != "" {
+				fmt.Printf("   💡 %s\n", truncate(f.Remediation, 55))
+			}
+		}
+	}
+	
+	if s.config.OutputFile != "" {
+		fmt.Printf("\n💾 Full details available in: %s\n", s.config.OutputFile)
+	} else {
+		fmt.Println("\n💾 Run with -o results.json to save full details")
+	}
+	
+	fmt.Println(strings.Repeat("─", 60))
 }
 
 // printSummary prints a human-readable summary
@@ -342,6 +425,23 @@ func (s *Scanner) checkFailCondition() error {
 	}
 	
 	return nil
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
+}
+
+func truncateMiddle(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	
+	// Keep start and end, replace middle with ...
+	keepLen := (maxLen - 3) / 2
+	return s[:keepLen] + "..." + s[len(s)-keepLen:]
 }
 
 // getSeverityEmoji returns an emoji for the severity level
