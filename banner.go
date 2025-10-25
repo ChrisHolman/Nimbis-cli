@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 )
 
@@ -79,8 +80,7 @@ var taglines = []string{
 
 // PrintBanner displays the animated banner
 func PrintBanner() {
-	// Clear screen
-	fmt.Print("\033[2J\033[H")
+	// Don't clear screen - just start from current position
 	
 	// Select random banner variant
 	banner := bannerVariants[rand.Intn(len(bannerVariants))]
@@ -164,12 +164,38 @@ func PrintScanProgress(scannerName string, status string, findings int) {
 		statusIcon = "•"
 	}
 	
+	// Get scan type badge
+	scanType := getScannerTypeFromName(scannerName)
+	typeBadge := ""
+	if scanType != "" {
+		typeBadge = fmt.Sprintf(" %s[%s]%s", Dim, scanType, Reset)
+	}
+	
 	findingsStr := ""
 	if status == "completed" && findings > 0 {
 		findingsStr = fmt.Sprintf(" %s(%d findings)%s", Dim, findings, Reset)
 	}
 	
-	fmt.Printf("  %s%s%s %s%-30s%s%s\n", statusColor, statusIcon, Reset, scannerName, findingsStr, Reset, "")
+	fmt.Printf("  %s%s%s %s%s%s%s\n", statusColor, statusIcon, Reset, scannerName, typeBadge, findingsStr, Reset)
+}
+
+// getScannerTypeFromName determines the scan type from scanner name
+func getScannerTypeFromName(scannerName string) string {
+	nameLower := strings.ToLower(scannerName)
+	switch {
+	case strings.Contains(nameLower, "iac") || strings.Contains(nameLower, "checkov"):
+		return "IaC"
+	case strings.Contains(nameLower, "secret") || strings.Contains(nameLower, "trufflehog"):
+		return "Secrets"
+	case strings.Contains(nameLower, "opengrep") || strings.Contains(nameLower, "sast"):
+		return "SAST"
+	case strings.Contains(nameLower, "vuln") || strings.Contains(nameLower, "grype") || strings.Contains(nameLower, "sca"):
+		return "SCA"
+	case strings.Contains(nameLower, "syft") || strings.Contains(nameLower, "sbom"):
+		return "SBOM"
+	default:
+		return ""
+	}
 }
 
 // PrintSectionHeader prints a section header
