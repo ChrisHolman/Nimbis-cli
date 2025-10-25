@@ -207,7 +207,13 @@ func (s *Scanner) checkScannerAvailability() {
 			
 			if len(availableScanners) == 0 {
 				fmt.Println("\n❌ Installation completed but scanners still not available.")
-				fmt.Println("Please check your system PATH or install manually.")
+				fmt.Println("\n💡 Manual installation instructions:")
+				fmt.Println("  • Trivy: https://aquasecurity.github.io/trivy/latest/getting-started/installation/")
+				fmt.Println("  • TruffleHog: https://github.com/trufflesecurity/trufflehog")
+				fmt.Println("  • Checkov: pip3 install checkov")
+				fmt.Println("  • Grype: https://github.com/anchore/grype")
+				fmt.Println("  • Syft: https://github.com/anchore/syft")
+				fmt.Println("  • OpenGrep: npm install -g @opengrep/cli")
 				os.Exit(1)
 			}
 			
