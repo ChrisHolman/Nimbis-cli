@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -43,12 +44,42 @@ func (c *CheckovScanner) Scan(config *ScanConfig) ([]Finding, error) {
 }
 
 func (c *CheckovScanner) parseResults(output []byte) ([]Finding, error) {
-	var checkovResults CheckovResults
-	if err := json.Unmarshal(output, &checkovResults); err != nil {
-		return nil, fmt.Errorf("failed to parse checkov output: %w", err)
+	// Checkov can return either an object or an array at the root
+	// Try to detect which format we have
+	output = bytes.TrimSpace(output)
+	
+	var findings []Finding
+	
+	if len(output) == 0 {
+		return findings, nil
+	}
+	
+	// If it starts with '[', it's an array of results
+	if output[0] == '[' {
+		var resultsArray []CheckovResults
+		if err := json.Unmarshal(output, &resultsArray); err != nil {
+			return nil, fmt.Errorf("failed to parse checkov output: %w", err)
+		}
+		
+		// Process each result set
+		for _, result := range resultsArray {
+			findings = append(findings, c.extractFindings(result)...)
+		}
+	} else {
+		// Single object
+		var checkovResults CheckovResults
+		if err := json.Unmarshal(output, &checkovResults); err != nil {
+			return nil, fmt.Errorf("failed to parse checkov output: %w", err)
+		}
+		findings = c.extractFindings(checkovResults)
 	}
 
+	return findings, nil
+}
+
+func (c *CheckovScanner) extractFindings(checkovResults CheckovResults) []Finding {
 	var findings []Finding
+	
 	for _, result := range checkovResults.Results.FailedChecks {
 		severity := c.mapSeverity(result.CheckClass)
 		
@@ -65,8 +96,8 @@ func (c *CheckovScanner) parseResults(output []byte) ([]Finding, error) {
 		}
 		findings = append(findings, finding)
 	}
-
-	return findings, nil
+	
+	return findings
 }
 
 func (c *CheckovScanner) mapSeverity(checkClass string) string {
