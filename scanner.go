@@ -242,6 +242,16 @@ func (s *Scanner) runParallel() {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	
+	type scanResult struct {
+		scanner     ScannerInterface
+		findings    []Finding
+		totalCount  int
+		filteredCount int
+		err         error
+	}
+	
+	results := make(chan scanResult, len(s.scanners))
+	
 	for name, scanner := range s.scanners {
 		wg.Add(1)
 		go func(n string, sc ScannerInterface) {
@@ -252,27 +262,73 @@ func (s *Scanner) runParallel() {
 			}
 			
 			findings, err := sc.Scan(s.config)
-			if err != nil {
-				if !s.config.Quiet {
-					PrintScanProgress(sc.Name(), "failed", 0)
-					if s.config.Verbose {
-						PrintWarning(fmt.Sprintf("%s: %v", sc.Name(), err))
+			
+			totalCount := len(findings)
+			filteredCount := 0
+			
+			// Filter findings by severity
+			if err == nil {
+				minLevel := s.getSeverityLevel(s.config.MinSeverity)
+				filteredFindings := []Finding{}
+				for _, f := range findings {
+					if s.getSeverityLevel(f.Severity) >= minLevel {
+						filteredFindings = append(filteredFindings, f)
+						filteredCount++
 					}
 				}
-				return
+				findings = filteredFindings
 			}
 			
-			mu.Lock()
-			s.appendFindings(findings)
-			mu.Unlock()
-			
-			if !s.config.Quiet {
-				PrintScanProgress(sc.Name(), "completed", len(findings))
+			results <- scanResult{
+				scanner:       sc,
+				findings:      findings,
+				totalCount:    totalCount,
+				filteredCount: filteredCount,
+				err:           err,
 			}
 		}(name, scanner)
 	}
 	
-	wg.Wait()
+	// Close results channel when all goroutines complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+	
+	// Collect results
+	for result := range results {
+		if result.err != nil {
+			if !s.config.Quiet {
+				PrintScanProgress(result.scanner.Name(), "failed", 0)
+				if s.config.Verbose {
+					PrintWarning(fmt.Sprintf("%s: %v", result.scanner.Name(), result.err))
+				}
+			}
+			continue
+		}
+		
+		mu.Lock()
+		s.appendFindings(result.findings)
+		mu.Unlock()
+		
+		if !s.config.Quiet {
+			// Show filtered count vs total if different
+			displayCount := result.filteredCount
+			statusMsg := ""
+			if result.filteredCount < result.totalCount {
+				statusMsg = fmt.Sprintf("%d of %d", result.filteredCount, result.totalCount)
+			}
+			
+			if statusMsg != "" && s.config.Verbose {
+				fmt.Printf("  \033[2K\r  %s✓%s %s [%s] %s(%s findings)%s\n", 
+					BrightGreen, Reset, result.scanner.Name(), 
+					getScannerTypeFromName(result.scanner.Name()),
+					Dim, statusMsg, Reset)
+			} else {
+				PrintScanProgress(result.scanner.Name(), "completed", displayCount)
+			}
+		}
+	}
 	
 	if !s.config.Quiet {
 		PrintSectionFooter()
@@ -284,6 +340,8 @@ func (s *Scanner) runSequential() {
 	if !s.config.Quiet {
 		PrintSectionHeader("SCANNING")
 	}
+	
+	minLevel := s.getSeverityLevel(s.config.MinSeverity)
 	
 	for _, scanner := range s.scanners {
 		if !s.config.Quiet {
@@ -301,10 +359,30 @@ func (s *Scanner) runSequential() {
 			continue
 		}
 		
-		s.appendFindings(findings)
+		totalCount := len(findings)
+		
+		// Filter by severity
+		filteredFindings := []Finding{}
+		for _, f := range findings {
+			if s.getSeverityLevel(f.Severity) >= minLevel {
+				filteredFindings = append(filteredFindings, f)
+			}
+		}
+		
+		s.appendFindings(filteredFindings)
 		
 		if !s.config.Quiet {
-			PrintScanProgress(scanner.Name(), "completed", len(findings))
+			displayCount := len(filteredFindings)
+			
+			// Show filtered count if different from total
+			if s.config.Verbose && len(filteredFindings) < totalCount {
+				fmt.Printf("  \033[2K\r  %s✓%s %s [%s] %s(%d of %d findings)%s\n",
+					BrightGreen, Reset, scanner.Name(),
+					getScannerTypeFromName(scanner.Name()),
+					Dim, len(filteredFindings), totalCount, Reset)
+			} else {
+				PrintScanProgress(scanner.Name(), "completed", displayCount)
+			}
 		}
 	}
 	
