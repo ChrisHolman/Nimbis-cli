@@ -323,12 +323,25 @@ func (g *GrypeScanner) parseResults(output []byte) ([]Finding, error) {
 			fixedVersion = match.Vulnerability.Fix.Versions[0]
 		}
 
+		title := match.Vulnerability.ID
+		description := match.Vulnerability.Description
+		if description == "" {
+			description = title
+		}
+
+		// Get the location/file from artifact
+		file := ""
+		if len(match.Artifact.Locations) > 0 {
+			file = match.Artifact.Locations[0].Path
+		}
+
 		finding := Finding{
 			Type:        ScanTypeSCA,
 			Scanner:     "grype",
 			Severity:    match.Vulnerability.Severity,
-			Title:       match.Vulnerability.ID,
-			Description: match.Vulnerability.Description,
+			Title:       title,
+			Description: description,
+			File:        file,
 			CVE:         match.Vulnerability.ID,
 			CVSS:        cvss,
 			References:  match.Vulnerability.URLs,
@@ -483,8 +496,11 @@ type GrypeVulnerability struct {
 }
 
 type GrypeArtifact struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	Name      string   `json:"name"`
+	Version   string   `json:"version"`
+	Locations []struct {
+		Path string `json:"path"`
+	} `json:"locations"`
 }
 
 type SyftOutput struct {
