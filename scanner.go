@@ -95,27 +95,36 @@ func (s *Scanner) Run() error {
 
 // checkScannerAvailability checks which scanners are available
 func (s *Scanner) checkScannerAvailability() {
-	fmt.Println("🔧 Checking scanner availability...")
+	if !s.config.Quiet {
+		PrintSectionHeader("SCANNER DETECTION")
+	}
+	
 	availableScanners := []string{}
 	
 	for name, scanner := range s.scanners {
 		if scanner.IsAvailable() {
 			availableScanners = append(availableScanners, name)
-			if s.config.Verbose {
-				fmt.Printf("  ✓ %s\n", scanner.Name())
+			if s.config.Verbose && !s.config.Quiet {
+				PrintScanProgress(scanner.Name(), "completed", 0)
 			}
 		} else {
-			fmt.Printf("  ⚠ %s not available (skipping)\n", scanner.Name())
+			if !s.config.Quiet {
+				PrintScanProgress(scanner.Name(), "skipped", 0)
+			}
 			delete(s.scanners, name)
 		}
 	}
 	
 	s.results.Metadata.Scanners = availableScanners
-	fmt.Printf("  Found %d available scanner(s)\n\n", len(availableScanners))
+	
+	if !s.config.Quiet {
+		PrintSectionFooter()
+		fmt.Printf("\n%s%d%s scanners ready\n", BrightGreen, len(availableScanners), Reset)
+	}
 	
 	if len(availableScanners) == 0 {
 		// Offer to auto-install
-		fmt.Println("❌ No scanners available.")
+		PrintError("No scanners available")
 		
 		shouldInstall := s.config.AutoInstall
 		if !shouldInstall {
@@ -201,6 +210,10 @@ func (s *Scanner) checkScannerAvailability() {
 
 // runParallel runs all scanners in parallel
 func (s *Scanner) runParallel() {
+	if !s.config.Quiet {
+		PrintSectionHeader("SCANNING")
+	}
+	
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	
@@ -209,13 +222,18 @@ func (s *Scanner) runParallel() {
 		go func(n string, sc ScannerInterface) {
 			defer wg.Done()
 			
-			if s.config.Verbose {
-				fmt.Printf("▶ Starting %s...\n", sc.Name())
+			if !s.config.Quiet {
+				PrintScanProgress(sc.Name(), "running", 0)
 			}
 			
 			findings, err := sc.Scan(s.config)
 			if err != nil {
-				fmt.Printf("  ⚠ %s failed: %v\n", sc.Name(), err)
+				if !s.config.Quiet {
+					PrintScanProgress(sc.Name(), "failed", 0)
+					if s.config.Verbose {
+						PrintWarning(fmt.Sprintf("%s: %v", sc.Name(), err))
+					}
+				}
 				return
 			}
 			
@@ -223,26 +241,50 @@ func (s *Scanner) runParallel() {
 			s.appendFindings(findings)
 			mu.Unlock()
 			
-			fmt.Printf("  ✓ %s completed (%d findings)\n", sc.Name(), len(findings))
+			if !s.config.Quiet {
+				PrintScanProgress(sc.Name(), "completed", len(findings))
+			}
 		}(name, scanner)
 	}
 	
 	wg.Wait()
+	
+	if !s.config.Quiet {
+		PrintSectionFooter()
+	}
 }
 
 // runSequential runs all scanners sequentially
 func (s *Scanner) runSequential() {
+	if !s.config.Quiet {
+		PrintSectionHeader("SCANNING")
+	}
+	
 	for _, scanner := range s.scanners {
-		fmt.Printf("▶ Running %s...\n", scanner.Name())
+		if !s.config.Quiet {
+			PrintScanProgress(scanner.Name(), "running", 0)
+		}
 		
 		findings, err := scanner.Scan(s.config)
 		if err != nil {
-			fmt.Printf("  ⚠ %s failed: %v\n", scanner.Name(), err)
+			if !s.config.Quiet {
+				PrintScanProgress(scanner.Name(), "failed", 0)
+				if s.config.Verbose {
+					PrintWarning(fmt.Sprintf("%s: %v", scanner.Name(), err))
+				}
+			}
 			continue
 		}
 		
 		s.appendFindings(findings)
-		fmt.Printf("  ✓ %s completed (%d findings)\n", scanner.Name(), len(findings))
+		
+		if !s.config.Quiet {
+			PrintScanProgress(scanner.Name(), "completed", len(findings))
+		}
+	}
+	
+	if !s.config.Quiet {
+		PrintSectionFooter()
 	}
 }
 
@@ -325,9 +367,7 @@ func (s *Scanner) printBriefFindings() {
 		return
 	}
 	
-	fmt.Println("\n" + strings.Repeat("─", 60))
-	fmt.Println("📋 FINDINGS OVERVIEW")
-	fmt.Println(strings.Repeat("─", 60))
+	PrintSectionHeader("FINDINGS OVERVIEW")
 	
 	// Group by severity
 	severityGroups := map[string][]Finding{
@@ -348,69 +388,62 @@ func (s *Scanner) printBriefFindings() {
 			continue
 		}
 		
-		emoji := getSeverityEmoji(sev)
-		fmt.Printf("\n%s %s (%d issues)\n", emoji, sev, len(findings))
-		fmt.Println(strings.Repeat("─", 60))
+		fmt.Printf("\n%s%s (%d issues)%s\n", Bold, ColorSeverity(sev), len(findings), Reset)
 		
 		for i, f := range findings {
 			// Limit to 5 per severity level for readability
 			if i >= 5 {
-				fmt.Printf("   ... and %d more %s issues\n", len(findings)-5, sev)
+				fmt.Printf("\n   %s... and %d more %s issues%s\n", Dim, len(findings)-5, sev, Reset)
 				break
 			}
 			
 			// Print brief finding
 			location := ""
 			if f.File != "" {
-				location = fmt.Sprintf(" in %s", truncateMiddle(f.File, 35))
+				location = truncateMiddle(f.File, 35)
 				if f.Line > 0 {
 					location += fmt.Sprintf(":%d", f.Line)
 				}
 			}
 			
-			fmt.Printf("\n   %s%s\n", truncate(f.Title, 55), location)
-			
-			if f.Remediation != "" {
-				fmt.Printf("   💡 %s\n", truncate(f.Remediation, 55))
-			}
+			PrintFinding(sev, truncate(f.Title, 55), location, truncate(f.Remediation, 55))
 		}
 	}
 	
-	if s.config.OutputFile != "" {
-		fmt.Printf("\n💾 Full details available in: %s\n", s.config.OutputFile)
-	} else {
-		fmt.Println("\n💾 Run with -o results.json to save full details")
-	}
+	PrintSectionFooter()
 	
-	fmt.Println(strings.Repeat("─", 60))
+	if s.config.OutputFile != "" {
+		PrintInfo(fmt.Sprintf("Full details saved to: %s", s.config.OutputFile))
+	} else {
+		PrintInfo("Run with -o results.json to save full details")
+	}
 }
 
 // printSummary prints a human-readable summary
 func (s *Scanner) printSummary() {
-	fmt.Println("\n" + strings.Repeat("═", 60))
-	fmt.Println("📊 SCAN SUMMARY")
-	fmt.Println(strings.Repeat("═", 60))
-	fmt.Printf("Total Findings: %d\n", s.results.Summary.TotalFindings)
-	fmt.Printf("Scan Duration: %s\n", s.results.Summary.ScanDuration)
+	stats := map[string]interface{}{
+		"Total Findings":   s.results.Summary.TotalFindings,
+		"Scan Duration":    s.results.Summary.ScanDuration,
+		"Scanners Used":    len(s.results.Metadata.Scanners),
+	}
+	
+	PrintSummaryBox("SCAN SUMMARY", stats)
 	
 	if len(s.results.Summary.FindingsBySeverity) > 0 {
-		fmt.Println("\nFindings by Severity:")
+		fmt.Printf("\n%sSeverity Breakdown:%s\n", Bold, Reset)
 		for _, sev := range []string{SeverityCritical, SeverityHigh, SeverityMedium, SeverityLow} {
 			if count, ok := s.results.Summary.FindingsBySeverity[sev]; ok && count > 0 {
-				emoji := getSeverityEmoji(sev)
-				fmt.Printf("  %s %s: %d\n", emoji, sev, count)
+				fmt.Printf("  %s %d\n", ColorSeverity(sev), count)
 			}
 		}
 	}
 	
 	if len(s.results.Summary.FindingsByType) > 0 {
-		fmt.Println("\nFindings by Type:")
+		fmt.Printf("\n%sFindings by Type:%s\n", Bold, Reset)
 		for scanType, count := range s.results.Summary.FindingsByType {
-			fmt.Printf("  • %s: %d\n", scanType, count)
+			fmt.Printf("  %s• %s:%s %d\n", Cyan, scanType, Reset, count)
 		}
 	}
-	
-	fmt.Println(strings.Repeat("═", 60))
 }
 
 // checkFailCondition checks if the scan should fail based on severity threshold
@@ -433,7 +466,7 @@ func (s *Scanner) checkFailCondition() error {
 	return nil
 }
 
-func truncate(s string, maxLen int) string {
+func truncateScanner(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
