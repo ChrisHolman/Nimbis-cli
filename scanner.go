@@ -64,8 +64,14 @@ func NewScanner(config *ScanConfig) *Scanner {
 
 // Run executes all configured scanners
 func (s *Scanner) Run() error {
-	fmt.Printf("🔍 Nimbis v%s - Starting security scan...\n", version)
-	fmt.Printf("📂 Target: %s\n\n", s.config.TargetPath)
+	// Print banner (skip if quiet mode)
+	if !s.config.Quiet {
+		PrintBanner()
+	} else {
+		PrintCompactBanner()
+	}
+	
+	PrintScanStart(s.config.TargetPath)
 
 	// Check scanner availability
 	s.checkScannerAvailability()
