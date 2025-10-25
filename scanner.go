@@ -62,6 +62,24 @@ func NewScanner(config *ScanConfig) *Scanner {
 	return s
 }
 
+// getScannerType returns the scan type for a scanner name
+func getScannerType(scannerName string) string {
+	switch {
+	case strings.Contains(scannerName, "iac") || strings.Contains(scannerName, "Checkov"):
+		return "IaC"
+	case strings.Contains(scannerName, "secret") || strings.Contains(scannerName, "TruffleHog"):
+		return "Secrets"
+	case strings.Contains(scannerName, "opengrep") || strings.Contains(scannerName, "OpenGrep"):
+		return "SAST"
+	case strings.Contains(scannerName, "vuln") || strings.Contains(scannerName, "Grype") || strings.Contains(scannerName, "Vulnerability"):
+		return "SCA"
+	case strings.Contains(scannerName, "Syft") || strings.Contains(scannerName, "SBOM"):
+		return "SBOM"
+	default:
+		return ""
+	}
+}
+
 // Run executes all configured scanners
 func (s *Scanner) Run() error {
 	// Print banner (skip if quiet mode)
@@ -378,7 +396,21 @@ func (s *Scanner) printBriefFindings() {
 	}
 	
 	for _, f := range allFindings {
-		severityGroups[f.Severity] = append(severityGroups[f.Severity], f)
+		// Normalize severity (some scanners use different casing)
+		normalizedSeverity := strings.ToUpper(f.Severity)
+		switch normalizedSeverity {
+		case "CRITICAL":
+			severityGroups[SeverityCritical] = append(severityGroups[SeverityCritical], f)
+		case "HIGH":
+			severityGroups[SeverityHigh] = append(severityGroups[SeverityHigh], f)
+		case "MEDIUM":
+			severityGroups[SeverityMedium] = append(severityGroups[SeverityMedium], f)
+		case "LOW":
+			severityGroups[SeverityLow] = append(severityGroups[SeverityLow], f)
+		default:
+			// Default to LOW for unknown severities
+			severityGroups[SeverityLow] = append(severityGroups[SeverityLow], f)
+		}
 	}
 	
 	// Print each severity group
@@ -406,7 +438,7 @@ func (s *Scanner) printBriefFindings() {
 				}
 			}
 			
-			PrintFinding(sev, truncate(f.Title, 55), location, truncate(f.Remediation, 55))
+			PrintFinding(sev, truncateScanner(f.Title, 55), location, truncateScanner(f.Remediation, 55))
 		}
 	}
 	
