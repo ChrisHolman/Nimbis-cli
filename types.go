@@ -14,6 +14,7 @@ type ScanConfig struct {
 	Parallel       bool
 	Verbose        bool
 	AutoInstall    bool
+	Quiet          bool
 	ScanTypes      ScanTypes
 }
 
