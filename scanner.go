@@ -409,41 +409,32 @@ func (s *Scanner) appendFindings(findings []Finding) {
 
 // calculateSummary calculates summary statistics
 func (s *Scanner) calculateSummary() {
+	// Use the already filtered findings from the result arrays
 	allFindings := append(s.results.IaCResults, s.results.SecretResults...)
 	allFindings = append(allFindings, s.results.SASTResults...)
 	allFindings = append(allFindings, s.results.SCAResults...)
 	
-	// Filter by minimum severity
-	filteredFindings := []Finding{}
-	minSeverityLevel := s.getSeverityLevel(s.config.MinSeverity)
+	s.results.Summary.TotalFindings = len(allFindings)
 	
+	// Count by severity and type
 	for _, f := range allFindings {
-		findingSeverityLevel := s.getSeverityLevel(f.Severity)
-		if findingSeverityLevel >= minSeverityLevel {
-			filteredFindings = append(filteredFindings, f)
-			s.results.Summary.FindingsBySeverity[f.Severity]++
-			s.results.Summary.FindingsByType[f.Type]++
+		// Normalize severity for counting
+		normalizedSeverity := strings.ToUpper(f.Severity)
+		switch normalizedSeverity {
+		case "CRITICAL":
+			s.results.Summary.FindingsBySeverity[SeverityCritical]++
+		case "HIGH":
+			s.results.Summary.FindingsBySeverity[SeverityHigh]++
+		case "MEDIUM":
+			s.results.Summary.FindingsBySeverity[SeverityMedium]++
+		case "LOW":
+			s.results.Summary.FindingsBySeverity[SeverityLow]++
+		default:
+			s.results.Summary.FindingsBySeverity[SeverityLow]++
 		}
+		
+		s.results.Summary.FindingsByType[f.Type]++
 	}
-	
-	s.results.Summary.TotalFindings = len(filteredFindings)
-	
-	// Update results to only include filtered findings
-	s.results.IaCResults = s.filterFindingsBySeverity(s.results.IaCResults, minSeverityLevel)
-	s.results.SecretResults = s.filterFindingsBySeverity(s.results.SecretResults, minSeverityLevel)
-	s.results.SASTResults = s.filterFindingsBySeverity(s.results.SASTResults, minSeverityLevel)
-	s.results.SCAResults = s.filterFindingsBySeverity(s.results.SCAResults, minSeverityLevel)
-}
-
-// filterFindingsBySeverity filters findings by minimum severity level
-func (s *Scanner) filterFindingsBySeverity(findings []Finding, minLevel int) []Finding {
-	filtered := []Finding{}
-	for _, f := range findings {
-		if s.getSeverityLevel(f.Severity) >= minLevel {
-			filtered = append(filtered, f)
-		}
-	}
-	return filtered
 }
 
 // getSeverityLevel returns numeric level for severity comparison
