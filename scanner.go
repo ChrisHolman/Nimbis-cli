@@ -425,6 +425,7 @@ func (s *Scanner) outputResults() error {
 
 // printBriefFindings prints a brief overview of findings
 func (s *Scanner) printBriefFindings() {
+	// Use the already filtered results from calculateSummary
 	allFindings := append(s.results.IaCResults, s.results.SecretResults...)
 	allFindings = append(allFindings, s.results.SASTResults...)
 	allFindings = append(allFindings, s.results.SCAResults...)
@@ -435,7 +436,10 @@ func (s *Scanner) printBriefFindings() {
 	
 	PrintSectionHeader("FINDINGS OVERVIEW")
 	
-	// Group by severity
+	// Get minimum severity level
+	minSeverityLevel := s.getSeverityLevel(s.config.MinSeverity)
+	
+	// Group by severity (only those that meet the threshold)
 	severityGroups := map[string][]Finding{
 		SeverityCritical: {},
 		SeverityHigh:     {},
@@ -444,25 +448,36 @@ func (s *Scanner) printBriefFindings() {
 	}
 	
 	for _, f := range allFindings {
-		// Normalize severity (some scanners use different casing)
+		// Normalize severity
 		normalizedSeverity := strings.ToUpper(f.Severity)
+		var targetSeverity string
+		
 		switch normalizedSeverity {
 		case "CRITICAL":
-			severityGroups[SeverityCritical] = append(severityGroups[SeverityCritical], f)
+			targetSeverity = SeverityCritical
 		case "HIGH":
-			severityGroups[SeverityHigh] = append(severityGroups[SeverityHigh], f)
+			targetSeverity = SeverityHigh
 		case "MEDIUM":
-			severityGroups[SeverityMedium] = append(severityGroups[SeverityMedium], f)
+			targetSeverity = SeverityMedium
 		case "LOW":
-			severityGroups[SeverityLow] = append(severityGroups[SeverityLow], f)
+			targetSeverity = SeverityLow
 		default:
-			// Default to LOW for unknown severities
-			severityGroups[SeverityLow] = append(severityGroups[SeverityLow], f)
+			targetSeverity = SeverityLow
+		}
+		
+		// Only include if it meets minimum severity
+		if s.getSeverityLevel(targetSeverity) >= minSeverityLevel {
+			severityGroups[targetSeverity] = append(severityGroups[targetSeverity], f)
 		}
 	}
 	
-	// Print each severity group
+	// Print each severity group (only those at or above threshold)
 	for _, sev := range []string{SeverityCritical, SeverityHigh, SeverityMedium, SeverityLow} {
+		// Skip if below minimum severity
+		if s.getSeverityLevel(sev) < minSeverityLevel {
+			continue
+		}
+		
 		findings := severityGroups[sev]
 		if len(findings) == 0 {
 			continue
