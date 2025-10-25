@@ -205,15 +205,26 @@ func (o *OpenGrepScanner) Scan(config *ScanConfig) ([]Finding, error) {
 		"scan",
 		"--config", "auto",
 		"--json",
-		config.TargetPath,
+		"--no-git-ignore",
+	}
+	
+	// Add target path
+	if config.TargetPath != "." {
+		args = append(args, config.TargetPath)
 	}
 
 	cmd := exec.Command("opengrep", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		// OpenGrep returns non-zero when findings exist
 		if len(output) == 0 {
 			return nil, fmt.Errorf("opengrep failed: %w", err)
 		}
+	}
+
+	// Check if output is empty or just whitespace
+	if len(bytes.TrimSpace(output)) == 0 {
+		return []Finding{}, nil
 	}
 
 	return o.parseResults(output)
@@ -227,11 +238,13 @@ func (o *OpenGrepScanner) parseResults(output []byte) ([]Finding, error) {
 
 	var findings []Finding
 	for _, result := range openGrepResults.Results {
+		severity := o.mapSeverity(result.Extra.Severity)
+		
 		finding := Finding{
 			Type:        ScanTypeSAST,
 			Scanner:     "opengrep",
-			Severity:    o.mapSeverity(result.Extra.Severity),
-			Title:       result.CheckID,
+			Severity:    severity,
+			Title:       result.Extra.Message,
 			Description: result.Extra.Message,
 			File:        result.Path,
 			Line:        result.Start.Line,
@@ -252,10 +265,12 @@ func (o *OpenGrepScanner) parseResults(output []byte) ([]Finding, error) {
 
 func (o *OpenGrepScanner) mapSeverity(severity string) string {
 	switch strings.ToUpper(severity) {
-	case "ERROR":
+	case "ERROR", "CRITICAL":
 		return SeverityHigh
-	case "WARNING":
+	case "WARNING", "WARN":
 		return SeverityMedium
+	case "INFO", "NOTE":
+		return SeverityLow
 	default:
 		return SeverityLow
 	}
