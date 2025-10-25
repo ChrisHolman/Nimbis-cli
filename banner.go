@@ -134,7 +134,7 @@ func PrintScanStart(target string) {
 	fmt.Printf("%s%s┌─────────────────────────────────────────────────────────┐%s\n", Bold, BrightCyan, Reset)
 	fmt.Printf("%s%s│  SCAN INITIATED%s                                          │\n", Bold, BrightCyan, Reset)
 	fmt.Printf("%s%s├─────────────────────────────────────────────────────────┤%s\n", Bold, BrightCyan, Reset)
-	fmt.Printf("%s%s│%s  Target:  %s%-44s%s %s│%s\n", Bold, BrightCyan, Reset, BrightWhite, truncate(target, 44), Reset, BrightCyan, Reset)
+	fmt.Printf("%s%s│%s  Target:  %s%-44s%s %s│%s\n", Bold, BrightCyan, Reset, BrightWhite, truncateBanner(target, 44), Reset, BrightCyan, Reset)
 	fmt.Printf("%s%s│%s  Time:    %s%-44s%s %s│%s\n", Bold, BrightCyan, Reset, BrightWhite, time.Now().Format("2006-01-02 15:04:05"), Reset, BrightCyan, Reset)
 	fmt.Printf("%s%s└─────────────────────────────────────────────────────────┘%s\n\n", Bold, BrightCyan, Reset)
 }
@@ -282,4 +282,12 @@ func ColorSeverity(severity string) string {
 	default:
 		return severity
 	}
+}
+
+// truncateBanner truncates a string for banner display
+func truncateBanner(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }
