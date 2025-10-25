@@ -225,9 +225,10 @@ func (s *Scanner) checkScannerAvailability() {
 		fmt.Println("\nManual installation instructions:")
 		fmt.Println("  • Trivy: https://aquasecurity.github.io/trivy/latest/getting-started/installation/")
 		fmt.Println("  • TruffleHog: https://github.com/trufflesecurity/trufflehog")
-		fmt.Println("  • Checkov: pip install checkov")
+		fmt.Println("  • Checkov: pip3 install checkov")
 		fmt.Println("  • Grype: https://github.com/anchore/grype")
 		fmt.Println("  • Syft: https://github.com/anchore/syft")
+		fmt.Println("  • OpenGrep: npm install -g @opengrep/cli")
 		os.Exit(1)
 	}
 }
@@ -334,11 +335,52 @@ func (s *Scanner) calculateSummary() {
 	allFindings = append(allFindings, s.results.SASTResults...)
 	allFindings = append(allFindings, s.results.SCAResults...)
 	
-	s.results.Summary.TotalFindings = len(allFindings)
+	// Filter by minimum severity
+	filteredFindings := []Finding{}
+	minSeverityLevel := s.getSeverityLevel(s.config.MinSeverity)
 	
 	for _, f := range allFindings {
-		s.results.Summary.FindingsBySeverity[f.Severity]++
-		s.results.Summary.FindingsByType[f.Type]++
+		findingSeverityLevel := s.getSeverityLevel(f.Severity)
+		if findingSeverityLevel >= minSeverityLevel {
+			filteredFindings = append(filteredFindings, f)
+			s.results.Summary.FindingsBySeverity[f.Severity]++
+			s.results.Summary.FindingsByType[f.Type]++
+		}
+	}
+	
+	s.results.Summary.TotalFindings = len(filteredFindings)
+	
+	// Update results to only include filtered findings
+	s.results.IaCResults = s.filterFindingsBySeverity(s.results.IaCResults, minSeverityLevel)
+	s.results.SecretResults = s.filterFindingsBySeverity(s.results.SecretResults, minSeverityLevel)
+	s.results.SASTResults = s.filterFindingsBySeverity(s.results.SASTResults, minSeverityLevel)
+	s.results.SCAResults = s.filterFindingsBySeverity(s.results.SCAResults, minSeverityLevel)
+}
+
+// filterFindingsBySeverity filters findings by minimum severity level
+func (s *Scanner) filterFindingsBySeverity(findings []Finding, minLevel int) []Finding {
+	filtered := []Finding{}
+	for _, f := range findings {
+		if s.getSeverityLevel(f.Severity) >= minLevel {
+			filtered = append(filtered, f)
+		}
+	}
+	return filtered
+}
+
+// getSeverityLevel returns numeric level for severity comparison
+func (s *Scanner) getSeverityLevel(severity string) int {
+	switch strings.ToUpper(severity) {
+	case SeverityCritical:
+		return 4
+	case SeverityHigh:
+		return 3
+	case SeverityMedium:
+		return 2
+	case SeverityLow:
+		return 1
+	default:
+		return 0
 	}
 }
 
