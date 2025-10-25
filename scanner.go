@@ -429,16 +429,55 @@ func (s *Scanner) printBriefFindings() {
 				break
 			}
 			
-			// Print brief finding
-			location := ""
-			if f.File != "" {
-				location = truncateMiddle(f.File, 35)
-				if f.Line > 0 {
-					location += fmt.Sprintf(":%d", f.Line)
+			// Format finding based on type
+			if f.Type == ScanTypeSCA {
+				// SCA findings - show package info
+				title := f.Title
+				if f.CVE != "" {
+					title = f.CVE
 				}
+				
+				// Build location with package info
+				location := ""
+				remediation := ""
+				
+				if pkgName, ok := f.Extra["package"]; ok {
+					location = fmt.Sprintf("Package: %s", pkgName)
+					
+					if installedVer, ok := f.Extra["installed_version"]; ok {
+						location += fmt.Sprintf(" %s(%s)%s", Dim, installedVer, Reset)
+					}
+					
+					if fixedVer, ok := f.Extra["fixed_version"]; ok && fixedVer != "" {
+						remediation = fmt.Sprintf("Upgrade to %s", fixedVer)
+					}
+				}
+				
+				if f.File != "" {
+					if location != "" {
+						location += fmt.Sprintf(" in %s", truncateMiddle(f.File, 25))
+					} else {
+						location = truncateMiddle(f.File, 35)
+					}
+				}
+				
+				if remediation == "" && f.Remediation != "" {
+					remediation = truncateScanner(f.Remediation, 55)
+				}
+				
+				PrintFinding(sev, title, location, remediation)
+			} else {
+				// Non-SCA findings - original format
+				location := ""
+				if f.File != "" {
+					location = truncateMiddle(f.File, 35)
+					if f.Line > 0 {
+						location += fmt.Sprintf(":%d", f.Line)
+					}
+				}
+				
+				PrintFinding(sev, truncateScanner(f.Title, 55), location, truncateScanner(f.Remediation, 55))
 			}
-			
-			PrintFinding(sev, truncateScanner(f.Title, 55), location, truncateScanner(f.Remediation, 55))
 		}
 	}
 	
