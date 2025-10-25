@@ -2,577 +2,294 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
-	"sync"
-	"time"
 )
 
-// Scanner orchestrates multiple security scanners
-type Scanner struct {
-	config   *ScanConfig
-	scanners map[string]ScannerInterface
-	results  *ScanResult
+// ScannerInstaller handles automatic installation of scanners
+type ScannerInstaller struct {
+	cacheDir string
 }
 
-// NewScanner creates a new scanner orchestrator
-func NewScanner(config *ScanConfig) *Scanner {
-	s := &Scanner{
-		config: config,
-		results: &ScanResult{
-			Summary: Summary{
-				FindingsBySeverity: make(map[string]int),
-				FindingsByType:     make(map[string]int),
-			},
-			Metadata: Metadata{
-				ToolName:    "Nimbis",
-				ToolVersion: version,
-				TargetPath:  config.TargetPath,
-				StartTime:   time.Now(),
-			},
-		},
+// NewScannerInstaller creates a new installer
+func NewScannerInstaller() (*ScannerInstaller, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
 	}
 
-	// Initialize scanners based on config
-	s.scanners = make(map[string]ScannerInterface)
-	
-	if config.ScanTypes.IaC {
-		s.scanners["trivy-iac"] = NewTrivyIaCScanner()
-		s.scanners["checkov"] = NewCheckovScanner()
-	}
-	
-	if config.ScanTypes.Secrets {
-		s.scanners["trufflehog"] = NewTruffleHogScanner()
-		s.scanners["trivy-secret"] = NewTrivySecretScanner()
-	}
-	
-	if config.ScanTypes.SAST {
-		s.scanners["opengrep"] = NewOpenGrepScanner()
-	}
-	
-	if config.ScanTypes.SCA {
-		s.scanners["trivy-vuln"] = NewTrivyVulnScanner()
-		s.scanners["grype"] = NewGrypeScanner()
-	}
-	
-	if config.ScanTypes.SBOM {
-		s.scanners["syft"] = NewSyftScanner()
+	cacheDir := filepath.Join(homeDir, ".nimbis", "scanners")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return nil, err
 	}
 
-	return s
+	return &ScannerInstaller{
+		cacheDir: cacheDir,
+	}, nil
 }
 
-// getScannerType returns the scan type for a scanner name
-func getScannerType(scannerName string) string {
-	switch {
-	case strings.Contains(scannerName, "iac") || strings.Contains(scannerName, "Checkov"):
-		return "IaC"
-	case strings.Contains(scannerName, "secret") || strings.Contains(scannerName, "TruffleHog"):
-		return "Secrets"
-	case strings.Contains(scannerName, "opengrep") || strings.Contains(scannerName, "OpenGrep"):
-		return "SAST"
-	case strings.Contains(scannerName, "vuln") || strings.Contains(scannerName, "Grype") || strings.Contains(scannerName, "Vulnerability"):
-		return "SCA"
-	case strings.Contains(scannerName, "Syft") || strings.Contains(scannerName, "SBOM"):
-		return "SBOM"
-	default:
-		return ""
-	}
-}
-
-// Run executes all configured scanners
-func (s *Scanner) Run() error {
-	// Print banner (skip if quiet mode)
-	if !s.config.Quiet {
-		PrintBanner()
-	} else {
-		PrintCompactBanner()
-	}
+// InstallAll installs all available scanners
+func (i *ScannerInstaller) InstallAll() error {
+	fmt.Println("🔧 Auto-installing security scanners...")
+	fmt.Println("   This may take a few minutes on first run...")
 	
-	PrintScanStart(s.config.TargetPath)
-
-	// Check scanner availability
-	s.checkScannerAvailability()
-
-	// Run scanners
-	if s.config.Parallel {
-		s.runParallel()
-	} else {
-		s.runSequential()
+	scanners := []struct {
+		name    string
+		install func() error
+	}{
+		{"Trivy", i.installTrivy},
+		{"TruffleHog", i.installTruffleHog},
+		{"Grype", i.installGrype},
+		{"Syft", i.installSyft},
+		// Note: Checkov requires Python/pip, OpenGrep requires npm
+		// These are skipped in auto-install but user can install manually
 	}
 
-	s.results.Metadata.EndTime = time.Now()
-	s.results.Summary.ScanDuration = s.results.Metadata.EndTime.Sub(s.results.Metadata.StartTime).String()
-
-	// Calculate summary
-	s.calculateSummary()
-
-	// Output results
-	return s.outputResults()
-}
-
-// checkScannerAvailability checks which scanners are available
-func (s *Scanner) checkScannerAvailability() {
-	if !s.config.Quiet {
-		PrintSectionHeader("SCANNER DETECTION")
-	}
-	
-	availableScanners := []string{}
-	
-	for name, scanner := range s.scanners {
-		if scanner.IsAvailable() {
-			availableScanners = append(availableScanners, name)
-			if s.config.Verbose && !s.config.Quiet {
-				PrintScanProgress(scanner.Name(), "completed", 0)
-			}
-		} else {
-			if !s.config.Quiet {
-				PrintScanProgress(scanner.Name(), "skipped", 0)
-			}
-			delete(s.scanners, name)
-		}
-	}
-	
-	s.results.Metadata.Scanners = availableScanners
-	
-	if !s.config.Quiet {
-		PrintSectionFooter()
-		fmt.Printf("\n%s%d%s scanners ready\n", BrightGreen, len(availableScanners), Reset)
-	}
-	
-	if len(availableScanners) == 0 {
-		// Offer to auto-install
-		PrintError("No scanners available")
-		
-		shouldInstall := s.config.AutoInstall
-		if !shouldInstall {
-			fmt.Println("\nWould you like to auto-install scanners? (y/n)")
-			fmt.Print("> ")
-			
-			var response string
-			fmt.Scanln(&response)
-			shouldInstall = strings.ToLower(strings.TrimSpace(response)) == "y"
-		}
-		
-		if shouldInstall {
-			installer, err := NewScannerInstaller()
-			if err != nil {
-				fmt.Printf("Failed to create installer: %v\n", err)
-				os.Exit(1)
-			}
-			
-			if err := installer.InstallAll(); err != nil {
-				fmt.Printf("Installation failed: %v\n", err)
-				os.Exit(1)
-			}
-			
-			installer.AddToPath()
-			
-			// Re-check availability after installation
-			fmt.Println("🔧 Re-checking scanner availability...")
-			s.scanners = make(map[string]ScannerInterface)
-			
-			if s.config.ScanTypes.IaC {
-				s.scanners["trivy-iac"] = NewTrivyIaCScanner()
-				s.scanners["checkov"] = NewCheckovScanner()
-			}
-			
-			if s.config.ScanTypes.Secrets {
-				s.scanners["trufflehog"] = NewTruffleHogScanner()
-				s.scanners["trivy-secret"] = NewTrivySecretScanner()
-			}
-			
-			if s.config.ScanTypes.SAST {
-				s.scanners["opengrep"] = NewOpenGrepScanner()
-			}
-			
-			if s.config.ScanTypes.SCA {
-				s.scanners["trivy-vuln"] = NewTrivyVulnScanner()
-				s.scanners["grype"] = NewGrypeScanner()
-			}
-			
-			if s.config.ScanTypes.SBOM {
-				s.scanners["syft"] = NewSyftScanner()
-			}
-			
-			availableScanners = []string{}
-			for name, scanner := range s.scanners {
-				if scanner.IsAvailable() {
-					availableScanners = append(availableScanners, name)
-					fmt.Printf("  ✓ %s\n", scanner.Name())
-				} else {
-					delete(s.scanners, name)
-				}
-			}
-			
-			if len(availableScanners) == 0 {
-				fmt.Println("\n❌ Installation completed but scanners still not available.")
-				fmt.Println("\n💡 Manual installation instructions:")
-				fmt.Println("  • Trivy: https://aquasecurity.github.io/trivy/latest/getting-started/installation/")
-				fmt.Println("  • TruffleHog: https://github.com/trufflesecurity/trufflehog")
-				fmt.Println("  • Checkov: pip3 install checkov")
-				fmt.Println("  • Grype: https://github.com/anchore/grype")
-				fmt.Println("  • Syft: https://github.com/anchore/syft")
-				fmt.Println("  • OpenGrep: npm install -g @opengrep/cli")
-				os.Exit(1)
-			}
-			
-			s.results.Metadata.Scanners = availableScanners
-			fmt.Printf("\n✅ Ready to scan with %d scanner(s)\n\n", len(availableScanners))
-			return
-		}
-		
-		fmt.Println("\nManual installation instructions:")
-		fmt.Println("  • Trivy: https://aquasecurity.github.io/trivy/latest/getting-started/installation/")
-		fmt.Println("  • TruffleHog: https://github.com/trufflesecurity/trufflehog")
-		fmt.Println("  • Checkov: pip3 install checkov")
-		fmt.Println("  • Grype: https://github.com/anchore/grype")
-		fmt.Println("  • Syft: https://github.com/anchore/syft")
-		fmt.Println("  • OpenGrep: npm install -g @opengrep/cli")
-		os.Exit(1)
-	}
-}
-
-// runParallel runs all scanners in parallel
-func (s *Scanner) runParallel() {
-	if !s.config.Quiet {
-		PrintSectionHeader("SCANNING")
-	}
-	
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	
-	for name, scanner := range s.scanners {
-		wg.Add(1)
-		go func(n string, sc ScannerInterface) {
-			defer wg.Done()
-			
-			if !s.config.Quiet {
-				PrintScanProgress(sc.Name(), "running", 0)
-			}
-			
-			findings, err := sc.Scan(s.config)
-			if err != nil {
-				if !s.config.Quiet {
-					PrintScanProgress(sc.Name(), "failed", 0)
-					if s.config.Verbose {
-						PrintWarning(fmt.Sprintf("%s: %v", sc.Name(), err))
-					}
-				}
-				return
-			}
-			
-			mu.Lock()
-			s.appendFindings(findings)
-			mu.Unlock()
-			
-			if !s.config.Quiet {
-				PrintScanProgress(sc.Name(), "completed", len(findings))
-			}
-		}(name, scanner)
-	}
-	
-	wg.Wait()
-	
-	if !s.config.Quiet {
-		PrintSectionFooter()
-	}
-}
-
-// runSequential runs all scanners sequentially
-func (s *Scanner) runSequential() {
-	if !s.config.Quiet {
-		PrintSectionHeader("SCANNING")
-	}
-	
-	for _, scanner := range s.scanners {
-		if !s.config.Quiet {
-			PrintScanProgress(scanner.Name(), "running", 0)
-		}
-		
-		findings, err := scanner.Scan(s.config)
-		if err != nil {
-			if !s.config.Quiet {
-				PrintScanProgress(scanner.Name(), "failed", 0)
-				if s.config.Verbose {
-					PrintWarning(fmt.Sprintf("%s: %v", scanner.Name(), err))
-				}
-			}
+	installed := 0
+	for _, scanner := range scanners {
+		fmt.Printf("   Installing %s...", scanner.name)
+		if err := scanner.install(); err != nil {
+			fmt.Printf(" ⚠️  failed: %v\n", err)
 			continue
 		}
-		
-		s.appendFindings(findings)
-		
-		if !s.config.Quiet {
-			PrintScanProgress(scanner.Name(), "completed", len(findings))
-		}
+		fmt.Println(" ✓")
+		installed++
 	}
-	
-	if !s.config.Quiet {
-		PrintSectionFooter()
-	}
-}
 
-// appendFindings adds findings to the appropriate result category
-func (s *Scanner) appendFindings(findings []Finding) {
-	for _, f := range findings {
-		switch f.Type {
-		case ScanTypeIaC:
-			s.results.IaCResults = append(s.results.IaCResults, f)
-		case ScanTypeSecret:
-			s.results.SecretResults = append(s.results.SecretResults, f)
-		case ScanTypeSAST:
-			s.results.SASTResults = append(s.results.SASTResults, f)
-		case ScanTypeSCA:
-			s.results.SCAResults = append(s.results.SCAResults, f)
-		}
+	if installed == 0 {
+		return fmt.Errorf("failed to install any scanners")
 	}
-}
 
-// calculateSummary calculates summary statistics
-func (s *Scanner) calculateSummary() {
-	allFindings := append(s.results.IaCResults, s.results.SecretResults...)
-	allFindings = append(allFindings, s.results.SASTResults...)
-	allFindings = append(allFindings, s.results.SCAResults...)
+	fmt.Printf("\n✅ Installed %d/%d scanners successfully\n", installed, len(scanners))
+	fmt.Println("\n💡 To install additional scanners manually:")
+	fmt.Println("   • Checkov: pip3 install checkov")
+	fmt.Println("   • OpenGrep: npm install -g @opengrep/cli")
+	fmt.Println()
 	
-	s.results.Summary.TotalFindings = len(allFindings)
-	
-	for _, f := range allFindings {
-		s.results.Summary.FindingsBySeverity[f.Severity]++
-		s.results.Summary.FindingsByType[f.Type]++
-	}
-}
-
-// outputResults outputs the scan results
-func (s *Scanner) outputResults() error {
-	// Always save full results to file if in quiet mode
-	if s.config.Quiet && s.config.OutputFile == "" {
-		s.config.OutputFile = "nimbis-results.json"
-		s.config.OutputFormat = "json"
-	}
-	
-	// Generate formatted output for file
-	if s.config.OutputFile != "" {
-		formatter := NewFormatter(s.config.OutputFormat, s.results)
-		output, err := formatter.Format()
-		if err != nil {
-			return fmt.Errorf("failed to format output: %w", err)
-		}
-		
-		if err := os.WriteFile(s.config.OutputFile, []byte(output), 0644); err != nil {
-			return fmt.Errorf("failed to write output file: %w", err)
-		}
-		
-		if !s.config.Quiet {
-			fmt.Printf("\n📄 Full results saved to: %s\n", s.config.OutputFile)
-		}
-	}
-	
-	// Print summary (always shown unless quiet mode with no findings)
-	if !s.config.Quiet || s.results.Summary.TotalFindings > 0 {
-		s.printSummary()
-		
-		// Print brief findings overview
-		if s.results.Summary.TotalFindings > 0 {
-			s.printBriefFindings()
-		}
-	}
-	
-	// Check if we should fail based on severity
-	return s.checkFailCondition()
-}
-
-// printBriefFindings prints a brief overview of findings
-func (s *Scanner) printBriefFindings() {
-	allFindings := append(s.results.IaCResults, s.results.SecretResults...)
-	allFindings = append(allFindings, s.results.SASTResults...)
-	allFindings = append(allFindings, s.results.SCAResults...)
-	
-	if len(allFindings) == 0 {
-		return
-	}
-	
-	PrintSectionHeader("FINDINGS OVERVIEW")
-	
-	// Group by severity
-	severityGroups := map[string][]Finding{
-		SeverityCritical: {},
-		SeverityHigh:     {},
-		SeverityMedium:   {},
-		SeverityLow:      {},
-	}
-	
-	for _, f := range allFindings {
-		// Normalize severity (some scanners use different casing)
-		normalizedSeverity := strings.ToUpper(f.Severity)
-		switch normalizedSeverity {
-		case "CRITICAL":
-			severityGroups[SeverityCritical] = append(severityGroups[SeverityCritical], f)
-		case "HIGH":
-			severityGroups[SeverityHigh] = append(severityGroups[SeverityHigh], f)
-		case "MEDIUM":
-			severityGroups[SeverityMedium] = append(severityGroups[SeverityMedium], f)
-		case "LOW":
-			severityGroups[SeverityLow] = append(severityGroups[SeverityLow], f)
-		default:
-			// Default to LOW for unknown severities
-			severityGroups[SeverityLow] = append(severityGroups[SeverityLow], f)
-		}
-	}
-	
-	// Print each severity group
-	for _, sev := range []string{SeverityCritical, SeverityHigh, SeverityMedium, SeverityLow} {
-		findings := severityGroups[sev]
-		if len(findings) == 0 {
-			continue
-		}
-		
-		fmt.Printf("\n%s%s (%d issues)%s\n", Bold, ColorSeverity(sev), len(findings), Reset)
-		
-		for i, f := range findings {
-			// Limit to 5 per severity level for readability
-			if i >= 5 {
-				fmt.Printf("\n   %s... and %d more %s issues%s\n", Dim, len(findings)-5, sev, Reset)
-				break
-			}
-			
-			// Format finding based on type
-			if f.Type == ScanTypeSCA {
-				// SCA findings - show package info
-				title := f.Title
-				if f.CVE != "" {
-					title = f.CVE
-				}
-				
-				// Build location with package info
-				location := ""
-				remediation := ""
-				
-				if pkgName, ok := f.Extra["package"]; ok {
-					location = fmt.Sprintf("Package: %s", pkgName)
-					
-					if installedVer, ok := f.Extra["installed_version"]; ok {
-						location += fmt.Sprintf(" %s(%s)%s", Dim, installedVer, Reset)
-					}
-					
-					if fixedVer, ok := f.Extra["fixed_version"]; ok && fixedVer != "" {
-						remediation = fmt.Sprintf("Upgrade to %s", fixedVer)
-					}
-				}
-				
-				if f.File != "" {
-					if location != "" {
-						location += fmt.Sprintf(" in %s", truncateMiddle(f.File, 25))
-					} else {
-						location = truncateMiddle(f.File, 35)
-					}
-				}
-				
-				if remediation == "" && f.Remediation != "" {
-					remediation = truncateScanner(f.Remediation, 55)
-				}
-				
-				PrintFinding(sev, title, location, remediation)
-			} else {
-				// Non-SCA findings - original format
-				location := ""
-				if f.File != "" {
-					location = truncateMiddle(f.File, 35)
-					if f.Line > 0 {
-						location += fmt.Sprintf(":%d", f.Line)
-					}
-				}
-				
-				PrintFinding(sev, truncateScanner(f.Title, 55), location, truncateScanner(f.Remediation, 55))
-			}
-		}
-	}
-	
-	PrintSectionFooter()
-	
-	if s.config.OutputFile != "" {
-		PrintInfo(fmt.Sprintf("Full details saved to: %s", s.config.OutputFile))
-	} else {
-		PrintInfo("Run with -o results.json to save full details")
-	}
-}
-
-// printSummary prints a human-readable summary
-func (s *Scanner) printSummary() {
-	stats := map[string]interface{}{
-		"Total Findings":   s.results.Summary.TotalFindings,
-		"Scan Duration":    s.results.Summary.ScanDuration,
-		"Scanners Used":    len(s.results.Metadata.Scanners),
-	}
-	
-	PrintSummaryBox("SCAN SUMMARY", stats)
-	
-	if len(s.results.Summary.FindingsBySeverity) > 0 {
-		fmt.Printf("\n%sSeverity Breakdown:%s\n", Bold, Reset)
-		for _, sev := range []string{SeverityCritical, SeverityHigh, SeverityMedium, SeverityLow} {
-			if count, ok := s.results.Summary.FindingsBySeverity[sev]; ok && count > 0 {
-				fmt.Printf("  %s %d\n", ColorSeverity(sev), count)
-			}
-		}
-	}
-	
-	if len(s.results.Summary.FindingsByType) > 0 {
-		fmt.Printf("\n%sFindings by Type:%s\n", Bold, Reset)
-		for scanType, count := range s.results.Summary.FindingsByType {
-			fmt.Printf("  %s• %s:%s %d\n", Cyan, scanType, Reset, count)
-		}
-	}
-}
-
-// checkFailCondition checks if the scan should fail based on severity threshold
-func (s *Scanner) checkFailCondition() error {
-	severityOrder := map[string]int{
-		SeverityLow:      1,
-		SeverityMedium:   2,
-		SeverityHigh:     3,
-		SeverityCritical: 4,
-	}
-	
-	failThreshold := severityOrder[s.config.FailOnSeverity]
-	
-	for sev, count := range s.results.Summary.FindingsBySeverity {
-		if count > 0 && severityOrder[sev] >= failThreshold {
-			return fmt.Errorf("scan failed: found %d issue(s) at or above %s severity", count, s.config.FailOnSeverity)
-		}
+	// Add to PATH for current session
+	currentPath := os.Getenv("PATH")
+	if !strings.Contains(currentPath, i.cacheDir) {
+		os.Setenv("PATH", i.cacheDir+string(os.PathListSeparator)+currentPath)
 	}
 	
 	return nil
 }
 
-func truncateScanner(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
+// installTrivy installs Trivy scanner
+func (i *ScannerInstaller) installTrivy() error {
+	binaryName := "trivy"
+	if runtime.GOOS == "windows" {
+		binaryName = "trivy.exe"
 	}
-	return s[:maxLen-3] + "..."
-}
 
-func truncateMiddle(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
+	binaryPath := filepath.Join(i.cacheDir, binaryName)
+	if _, err := os.Stat(binaryPath); err == nil {
+		return nil // Already installed
 	}
-	
-	// Keep start and end, replace middle with ...
-	keepLen := (maxLen - 3) / 2
-	return s[:keepLen] + "..." + s[len(s)-keepLen:]
-}
 
-// getSeverityEmoji returns an emoji for the severity level
-func getSeverityEmoji(severity string) string {
-	switch severity {
-	case SeverityCritical:
-		return "🔴"
-	case SeverityHigh:
-		return "🟠"
-	case SeverityMedium:
-		return "🟡"
-	case SeverityLow:
-		return "🟢"
+	version := "0.55.2"
+	var url string
+
+	switch runtime.GOOS {
+	case "linux":
+		url = fmt.Sprintf("https://github.com/aquasecurity/trivy/releases/download/v%s/trivy_%s_Linux-%s.tar.gz",
+			version, version, runtime.GOARCH)
+	case "darwin":
+		url = fmt.Sprintf("https://github.com/aquasecurity/trivy/releases/download/v%s/trivy_%s_macOS-%s.tar.gz",
+			version, version, runtime.GOARCH)
+	case "windows":
+		url = fmt.Sprintf("https://github.com/aquasecurity/trivy/releases/download/v%s/trivy_%s_windows-%s.zip",
+			version, version, runtime.GOARCH)
 	default:
-		return "⚪"
+		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
 	}
+
+	return i.downloadAndExtract(url, binaryName, binaryPath)
+}
+
+// installTruffleHog installs TruffleHog scanner
+func (i *ScannerInstaller) installTruffleHog() error {
+	binaryName := "trufflehog"
+	if runtime.GOOS == "windows" {
+		binaryName = "trufflehog.exe"
+	}
+
+	binaryPath := filepath.Join(i.cacheDir, binaryName)
+	if _, err := os.Stat(binaryPath); err == nil {
+		return nil
+	}
+
+	version := "3.82.13"
+	var url string
+
+	switch runtime.GOOS {
+	case "linux":
+		url = fmt.Sprintf("https://github.com/trufflesecurity/trufflehog/releases/download/v%s/trufflehog_%s_linux_%s.tar.gz",
+			version, version, runtime.GOARCH)
+	case "darwin":
+		url = fmt.Sprintf("https://github.com/trufflesecurity/trufflehog/releases/download/v%s/trufflehog_%s_darwin_%s.tar.gz",
+			version, version, runtime.GOARCH)
+	case "windows":
+		url = fmt.Sprintf("https://github.com/trufflesecurity/trufflehog/releases/download/v%s/trufflehog_%s_windows_%s.zip",
+			version, version, runtime.GOARCH)
+	default:
+		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+	}
+
+	return i.downloadAndExtract(url, binaryName, binaryPath)
+}
+
+// installGrype installs Grype scanner
+func (i *ScannerInstaller) installGrype() error {
+	binaryName := "grype"
+	if runtime.GOOS == "windows" {
+		binaryName = "grype.exe"
+	}
+
+	binaryPath := filepath.Join(i.cacheDir, binaryName)
+	if _, err := os.Stat(binaryPath); err == nil {
+		return nil
+	}
+
+	version := "0.84.0"
+	var url string
+
+	switch runtime.GOOS {
+	case "linux":
+		url = fmt.Sprintf("https://github.com/anchore/grype/releases/download/v%s/grype_%s_linux_%s.tar.gz",
+			version, version, runtime.GOARCH)
+	case "darwin":
+		url = fmt.Sprintf("https://github.com/anchore/grype/releases/download/v%s/grype_%s_darwin_%s.tar.gz",
+			version, version, runtime.GOARCH)
+	case "windows":
+		url = fmt.Sprintf("https://github.com/anchore/grype/releases/download/v%s/grype_%s_windows_%s.zip",
+			version, version, runtime.GOARCH)
+	default:
+		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+	}
+
+	return i.downloadAndExtract(url, binaryName, binaryPath)
+}
+
+// installSyft installs Syft scanner
+func (i *ScannerInstaller) installSyft() error {
+	binaryName := "syft"
+	if runtime.GOOS == "windows" {
+		binaryName = "syft.exe"
+	}
+
+	binaryPath := filepath.Join(i.cacheDir, binaryName)
+	if _, err := os.Stat(binaryPath); err == nil {
+		return nil
+	}
+
+	version := "1.17.0"
+	var url string
+
+	switch runtime.GOOS {
+	case "linux":
+		url = fmt.Sprintf("https://github.com/anchore/syft/releases/download/v%s/syft_%s_linux_%s.tar.gz",
+			version, version, runtime.GOARCH)
+	case "darwin":
+		url = fmt.Sprintf("https://github.com/anchore/syft/releases/download/v%s/syft_%s_darwin_%s.tar.gz",
+			version, version, runtime.GOARCH)
+	case "windows":
+		url = fmt.Sprintf("https://github.com/anchore/syft/releases/download/v%s/syft_%s_windows_%s.zip",
+			version, version, runtime.GOARCH)
+	default:
+		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+	}
+
+	return i.downloadAndExtract(url, binaryName, binaryPath)
+}
+
+// downloadAndExtract downloads and extracts a binary
+func (i *ScannerInstaller) downloadAndExtract(url, binaryName, binaryPath string) error {
+	// Download to temp file
+	tempFile := filepath.Join(os.TempDir(), filepath.Base(url))
+	
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download failed: %s", resp.Status)
+	}
+
+	out, err := os.Create(tempFile)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	defer os.Remove(tempFile)
+
+	if _, err := io.Copy(out, resp.Body); err != nil {
+		return err
+	}
+	out.Close()
+
+	// Extract based on file type
+	if strings.HasSuffix(url, ".tar.gz") {
+		return i.extractTarGz(tempFile, binaryName, binaryPath)
+	} else if strings.HasSuffix(url, ".zip") {
+		return i.extractZip(tempFile, binaryName, binaryPath)
+	}
+
+	return fmt.Errorf("unsupported archive format")
+}
+
+// extractTarGz extracts a tar.gz file
+func (i *ScannerInstaller) extractTarGz(archivePath, binaryName, binaryPath string) error {
+	// Use tar command
+	cmd := exec.Command("tar", "-xzf", archivePath, "-C", i.cacheDir, binaryName)
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	// Make executable
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(binaryPath, 0755); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// extractZip extracts a zip file
+func (i *ScannerInstaller) extractZip(archivePath, binaryName, binaryPath string) error {
+	// Use unzip command
+	cmd := exec.Command("unzip", "-o", archivePath, binaryName, "-d", i.cacheDir)
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	// Make executable
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(binaryPath, 0755); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// AddToPath adds the cache directory to PATH permanently
+func (i *ScannerInstaller) AddToPath() {
+	currentPath := os.Getenv("PATH")
+	if !strings.Contains(currentPath, i.cacheDir) {
+		os.Setenv("PATH", i.cacheDir+string(os.PathListSeparator)+currentPath)
+	}
+}
+
+// GetCacheDir returns the cache directory
+func (i *ScannerInstaller) GetCacheDir() string {
+	return i.cacheDir
 }
