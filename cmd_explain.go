@@ -18,23 +18,23 @@ var explainCmd = &cobra.Command{
 	Long: `Use AI to explain security findings in plain language with actionable fix suggestions.
 Supports OpenAI, Anthropic Claude, and local Ollama models.
 
-The explain command will use existing scan results if available. If no results exist,
-it will run a scan first, respecting the global --severity flag.
+The explain command always runs a fresh security scan, then explains the findings.
+Use the global --severity flag to control which findings are scanned and explained.
 
 Examples:
-  # Explain all findings from existing scan
+  # Scan and explain all findings (default: top 10)
   nimbis explain
 
-  # Scan for HIGH+ findings and explain them
+  # Scan for HIGH+ findings and explain all of them
   nimbis --severity HIGH explain
 
-  # Explain top 20 findings
-  nimbis explain --max 20
+  # Scan for MEDIUM+ and explain top 50
+  nimbis --severity MEDIUM explain --max 50
 
-  # Scan for CRITICAL and explain all of them
+  # Scan for CRITICAL only and explain all
   nimbis --severity CRITICAL explain --max 100
 
-  # Only explain CRITICAL findings from existing scan results
+  # Filter explained findings further (scan all, explain only CRITICAL)
   nimbis explain --min-severity CRITICAL`,
 	RunE: runExplainAI,
 }
@@ -57,45 +57,43 @@ func runExplainAI(cmd *cobra.Command, args []string) error {
 	fmt.Println("🤖 Nimbis AI Explanation")
 	fmt.Println()
 
-	// First, run a scan if results don't exist or are stale
+	// Always run a fresh scan to ensure consistency
 	resultsFile := "nimbis-results.json"
-	if _, err := os.Stat(resultsFile); os.IsNotExist(err) {
-		fmt.Println("📋 No existing scan results found. Running scan first...")
-		
-		// Use the global severity flag if set, otherwise scan everything
-		scanSeverity := severity
-		if scanSeverity == "" || scanSeverity == "LOW" {
-			scanSeverity = "LOW"
-		}
-		
-		// Create a scanner with all scan types enabled
-		config := &ScanConfig{
-			TargetPath:     targetPath,
-			OutputFormat:   "json",
-			OutputFile:     resultsFile,
-			MinSeverity:    scanSeverity, // Respect global --severity flag
-			FailOnSeverity: "CRITICAL",
-			Parallel:       true,
-			Verbose:        false,
-			AutoInstall:    autoInstall,
-			Quiet:          true,
-			ScanTypes: ScanTypes{
-				IaC:     true,
-				Secrets: true,
-				SAST:    true,
-				SCA:     true,
-			},
-		}
-		
-		scanner := NewScanner(config)
-		if err := scanner.Run(); err != nil {
-			// Ignore exit errors from findings, we still want to explain them
-			if !strings.Contains(err.Error(), "scan failed: found") {
-				return fmt.Errorf("scan failed: %w", err)
-			}
-		}
-		fmt.Println()
+	fmt.Println("🔍 Running security scan...")
+	
+	// Use the global severity flag if set, otherwise scan everything
+	scanSeverity := severity
+	if scanSeverity == "" {
+		scanSeverity = "LOW"
 	}
+	
+	// Create a scanner with all scan types enabled
+	config := &ScanConfig{
+		TargetPath:     targetPath,
+		OutputFormat:   "json",
+		OutputFile:     resultsFile,
+		MinSeverity:    scanSeverity, // Respect global --severity flag
+		FailOnSeverity: "CRITICAL",
+		Parallel:       true,
+		Verbose:        false,
+		AutoInstall:    autoInstall,
+		Quiet:          true,
+		ScanTypes: ScanTypes{
+			IaC:     true,
+			Secrets: true,
+			SAST:    true,
+			SCA:     true,
+		},
+	}
+	
+	scanner := NewScanner(config)
+	if err := scanner.Run(); err != nil {
+		// Ignore exit errors from findings, we still want to explain them
+		if !strings.Contains(err.Error(), "scan failed: found") {
+			return fmt.Errorf("scan failed: %w", err)
+		}
+	}
+	fmt.Println()
 
 	// Load scan results
 	results, err := loadScanResults(resultsFile)
