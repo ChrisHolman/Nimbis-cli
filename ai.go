@@ -8,463 +8,448 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
-// AIProvider interface for different LLM providers
-type AIProvider interface {
-	Explain(finding Finding, codeContext string) (string, error)
-	GetName() string
-	IsConfigured() bool
+// AIProvider represents different AI service providers
+type AIProvider string
+
+const (
+	ProviderAnthropic AIProvider = "anthropic"
+	ProviderOpenAI    AIProvider = "openai"
+	ProviderOllama    AIProvider = "ollama"
+)
+
+// AIConfig holds configuration for AI providers
+type AIConfig struct {
+	Provider AIProvider
+	APIKey   string
+	Model    string
+	BaseURL  string
 }
 
-// OpenAIProvider implements OpenAI/ChatGPT
-type OpenAIProvider struct {
-	apiKey string
-	model  string
+// ExplanationRequest represents a request to explain findings
+type ExplanationRequest struct {
+	Findings []Finding
+	Severity string
+	MaxCount int
 }
 
-// AnthropicProvider implements Claude
-type AnthropicProvider struct {
-	apiKey string
-	model  string
+// ExplanationResponse represents the AI's explanation
+type ExplanationResponse struct {
+	Summary      string
+	Explanations []FindingExplanation
+	Recommendations []string
 }
 
-// OllamaProvider implements local Ollama
-type OllamaProvider struct {
-	endpoint string
-	model    string
+// FindingExplanation represents an explained finding
+type FindingExplanation struct {
+	Finding     Finding
+	Explanation string
+	FixSteps    []string
+	Priority    string
 }
 
-// NewAIProvider creates an AI provider based on configuration
-func NewAIProvider() AIProvider {
-	// Try providers in order of preference
-	
-	// 1. Check for OpenAI
-	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
-		model := os.Getenv("OPENAI_MODEL")
-		if model == "" {
-			model = "gpt-4o-mini" // Cheaper, faster default
-		}
-		return &OpenAIProvider{apiKey: apiKey, model: model}
-	}
-	
-	// 2. Check for Anthropic Claude
+// AnthropicRequest for Claude API
+type AnthropicRequest struct {
+	Model     string    `json:"model"`
+	MaxTokens int       `json:"max_tokens"`
+	Messages  []Message `json:"messages"`
+}
+
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type AnthropicResponse struct {
+	Content []struct {
+		Text string `json:"text"`
+	} `json:"content"`
+}
+
+// OpenAIRequest for GPT API
+type OpenAIRequest struct {
+	Model    string          `json:"model"`
+	Messages []Message       `json:"messages"`
+	MaxTokens int            `json:"max_tokens,omitempty"`
+}
+
+type OpenAIResponse struct {
+	Choices []struct {
+		Message Message `json:"message"`
+	} `json:"choices"`
+}
+
+// OllamaRequest for local Ollama
+type OllamaRequest struct {
+	Model  string `json:"model"`
+	Prompt string `json:"prompt"`
+	Stream bool   `json:"stream"`
+}
+
+type OllamaResponse struct {
+	Response string `json:"response"`
+}
+
+// GetAIConfig detects and configures the AI provider
+func GetAIConfig() (*AIConfig, error) {
+	// Check for Anthropic
 	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
-		model := os.Getenv("ANTHROPIC_MODEL")
-		if model == "" {
-			model = "claude-3-5-sonnet-20241022"
-		}
-		return &AnthropicProvider{apiKey: apiKey, model: model}
+		return &AIConfig{
+			Provider: ProviderAnthropic,
+			APIKey:   apiKey,
+			Model:    getEnvOrDefault("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
+			BaseURL:  "https://api.anthropic.com/v1/messages",
+		}, nil
 	}
-	
-	// 3. Check for local Ollama
-	endpoint := os.Getenv("OLLAMA_ENDPOINT")
-	if endpoint == "" {
-		endpoint = "http://localhost:11434" // Default Ollama endpoint
+
+	// Check for OpenAI
+	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+		return &AIConfig{
+			Provider: ProviderOpenAI,
+			APIKey:   apiKey,
+			Model:    getEnvOrDefault("OPENAI_MODEL", "gpt-4"),
+			BaseURL:  "https://api.openai.com/v1/chat/completions",
+		}, nil
 	}
-	model := os.Getenv("OLLAMA_MODEL")
-	if model == "" {
-		model = "llama3.2" // Default model
+
+	// Check for Ollama
+	ollamaURL := getEnvOrDefault("OLLAMA_URL", "http://localhost:11434")
+	if isOllamaAvailable(ollamaURL) {
+		return &AIConfig{
+			Provider: ProviderOllama,
+			Model:    getEnvOrDefault("OLLAMA_MODEL", "llama2"),
+			BaseURL:  ollamaURL + "/api/generate",
+		}, nil
 	}
-	
-	return &OllamaProvider{endpoint: endpoint, model: model}
+
+	return nil, fmt.Errorf("no AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or run Ollama locally")
 }
 
-// OpenAI Implementation
-func (p *OpenAIProvider) GetName() string {
-	return "OpenAI " + p.model
+func getEnvOrDefault(key, defaultValue string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return defaultValue
 }
 
-func (p *OpenAIProvider) IsConfigured() bool {
-	return p.apiKey != ""
-}
-
-func (p *OpenAIProvider) Explain(finding Finding, codeContext string) (string, error) {
-	prompt := buildExplanationPrompt(finding, codeContext)
-	
-	requestBody := map[string]interface{}{
-		"model": p.model,
-		"messages": []map[string]string{
-			{
-				"role":    "system",
-				"content": "You are a security expert helping developers understand and fix vulnerabilities. Be concise, practical, and provide actionable advice.",
-			},
-			{
-				"role":    "user",
-				"content": prompt,
-			},
-		},
-		"temperature": 0.7,
-		"max_tokens":  1000,
-	}
-	
-	jsonData, err := json.Marshal(requestBody)
-	if err != nil {
-		return "", err
-	}
-	
-	req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return "", err
-	}
-	
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+p.apiKey)
-	
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("OpenAI API error: %s", string(body))
-	}
-	
-	var result struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
-	}
-	
-	if len(result.Choices) == 0 {
-		return "", fmt.Errorf("no response from OpenAI")
-	}
-	
-	return result.Choices[0].Message.Content, nil
-}
-
-// Anthropic Implementation
-func (p *AnthropicProvider) GetName() string {
-	return "Anthropic " + p.model
-}
-
-func (p *AnthropicProvider) IsConfigured() bool {
-	return p.apiKey != ""
-}
-
-func (p *AnthropicProvider) Explain(finding Finding, codeContext string) (string, error) {
-	prompt := buildExplanationPrompt(finding, codeContext)
-	
-	requestBody := map[string]interface{}{
-		"model": p.model,
-		"max_tokens": 1024,
-		"messages": []map[string]string{
-			{
-				"role":    "user",
-				"content": prompt,
-			},
-		},
-	}
-	
-	jsonData, err := json.Marshal(requestBody)
-	if err != nil {
-		return "", err
-	}
-	
-	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return "", err
-	}
-	
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", p.apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-	
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("Anthropic API error: %s", string(body))
-	}
-	
-	var result struct {
-		Content []struct {
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-	
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
-	}
-	
-	if len(result.Content) == 0 {
-		return "", fmt.Errorf("no response from Anthropic")
-	}
-	
-	return result.Content[0].Text, nil
-}
-
-// Ollama Implementation
-func (p *OllamaProvider) GetName() string {
-	return "Ollama " + p.model
-}
-
-func (p *OllamaProvider) IsConfigured() bool {
-	// Check if Ollama is running
-	resp, err := http.Get(p.endpoint + "/api/tags")
+func isOllamaAvailable(baseURL string) bool {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(baseURL)
 	if err != nil {
 		return false
 	}
 	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	return resp.StatusCode == 200 || resp.StatusCode == 404
 }
 
-func (p *OllamaProvider) Explain(finding Finding, codeContext string) (string, error) {
-	prompt := buildExplanationPrompt(finding, codeContext)
+// ExplainFindings uses AI to explain security findings
+func ExplainFindings(config *AIConfig, request ExplanationRequest) (*ExplanationResponse, error) {
+	prompt := buildExplanationPrompt(request)
+
+	var explanation string
+	var err error
+
+	switch config.Provider {
+	case ProviderAnthropic:
+		explanation, err = callAnthropic(config, prompt)
+	case ProviderOpenAI:
+		explanation, err = callOpenAI(config, prompt)
+	case ProviderOllama:
+		explanation, err = callOllama(config, prompt)
+	default:
+		return nil, fmt.Errorf("unsupported AI provider: %s", config.Provider)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("AI request failed: %w", err)
+	}
+
+	return parseExplanation(explanation, request.Findings), nil
+}
+
+func buildExplanationPrompt(request ExplanationRequest) string {
+	var sb strings.Builder
 	
-	requestBody := map[string]interface{}{
-		"model":  p.model,
-		"prompt": prompt,
-		"stream": false,
-		"options": map[string]interface{}{
-			"temperature": 0.7,
+	sb.WriteString("You are a security expert. Analyze these security findings and provide:\n")
+	sb.WriteString("1. A brief summary of the overall security posture\n")
+	sb.WriteString("2. For each finding: a plain-language explanation and concrete fix steps\n")
+	sb.WriteString("3. Prioritized recommendations\n\n")
+	
+	sb.WriteString("Security Findings:\n\n")
+	
+	for i, finding := range request.Findings {
+		if i >= request.MaxCount {
+			break
+		}
+		sb.WriteString(fmt.Sprintf("## Finding %d: %s\n", i+1, finding.Title))
+		sb.WriteString(fmt.Sprintf("Severity: %s\n", finding.Severity))
+		sb.WriteString(fmt.Sprintf("Type: %s\n", finding.Type))
+		
+		if finding.CVE != "" {
+			sb.WriteString(fmt.Sprintf("CVE: %s\n", finding.CVE))
+		}
+		if finding.Package != "" {
+			sb.WriteString(fmt.Sprintf("Package: %s\n", finding.Package))
+		}
+		if finding.Version != "" {
+			sb.WriteString(fmt.Sprintf("Version: %s\n", finding.Version))
+		}
+		if finding.Location != "" {
+			sb.WriteString(fmt.Sprintf("Location: %s\n", finding.Location))
+		}
+		if finding.Description != "" {
+			sb.WriteString(fmt.Sprintf("Description: %s\n", finding.Description))
+		}
+		if finding.Remediation != "" {
+			sb.WriteString(fmt.Sprintf("Suggested Fix: %s\n", finding.Remediation))
+		}
+		sb.WriteString("\n")
+	}
+	
+	sb.WriteString("\nProvide your analysis in this format:\n")
+	sb.WriteString("SUMMARY: [brief overall assessment]\n\n")
+	sb.WriteString("FINDINGS:\n")
+	sb.WriteString("[For each finding, number them and provide explanation and fix steps]\n\n")
+	sb.WriteString("RECOMMENDATIONS:\n")
+	sb.WriteString("[Prioritized list of actions to take]\n")
+	
+	return sb.String()
+}
+
+func callAnthropic(config *AIConfig, prompt string) (string, error) {
+	reqBody := AnthropicRequest{
+		Model:     config.Model,
+		MaxTokens: 4096,
+		Messages: []Message{
+			{
+				Role:    "user",
+				Content: prompt,
+			},
 		},
 	}
-	
-	jsonData, err := json.Marshal(requestBody)
+
+	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
 		return "", err
 	}
-	
-	req, err := http.NewRequest("POST", p.endpoint+"/api/generate", bytes.NewBuffer(jsonData))
+
+	req, err := http.NewRequest("POST", config.BaseURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", err
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
-	
-	client := &http.Client{}
+	req.Header.Set("x-api-key", config.APIKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("Ollama not running. Start with: ollama serve")
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("Ollama API error: %s", string(body))
-	}
-	
-	var result struct {
-		Response string `json:"response"`
-	}
-	
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", err
 	}
-	
-	return result.Response, nil
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var anthropicResp AnthropicResponse
+	if err := json.NewDecoder(resp.Body).Decode(&anthropicResp); err != nil {
+		return "", err
+	}
+
+	if len(anthropicResp.Content) == 0 {
+		return "", fmt.Errorf("no content in response")
+	}
+
+	return anthropicResp.Content[0].Text, nil
 }
 
-// buildExplanationPrompt creates the prompt for AI explanation
-func buildExplanationPrompt(finding Finding, codeContext string) string {
-	var prompt strings.Builder
-	
-	prompt.WriteString("Explain this security finding:\n\n")
-	
-	// Finding details
-	if finding.CVE != "" {
-		prompt.WriteString(fmt.Sprintf("CVE: %s\n", finding.CVE))
+func callOpenAI(config *AIConfig, prompt string) (string, error) {
+	reqBody := OpenAIRequest{
+		Model: config.Model,
+		Messages: []Message{
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		},
+		MaxTokens: 4096,
 	}
-	prompt.WriteString(fmt.Sprintf("Title: %s\n", finding.Title))
-	prompt.WriteString(fmt.Sprintf("Severity: %s\n", finding.Severity))
-	prompt.WriteString(fmt.Sprintf("Type: %s\n", finding.Type))
-	
-	if finding.File != "" {
-		prompt.WriteString(fmt.Sprintf("Location: %s", finding.File))
-		if finding.Line > 0 {
-			prompt.WriteString(fmt.Sprintf(":%d", finding.Line))
-		}
-		prompt.WriteString("\n")
-	}
-	
-	if finding.Description != "" {
-		prompt.WriteString(fmt.Sprintf("Description: %s\n", finding.Description))
-	}
-	
-	// Package info for SCA
-	if finding.Type == ScanTypeSCA {
-		if pkg, ok := finding.Extra["package"]; ok {
-			prompt.WriteString(fmt.Sprintf("\nAffected Package: %s\n", pkg))
-			if ver, ok := finding.Extra["installed_version"]; ok {
-				prompt.WriteString(fmt.Sprintf("Current Version: %s\n", ver))
-			}
-			if fix, ok := finding.Extra["fixed_version"]; ok && fix != "" {
-				prompt.WriteString(fmt.Sprintf("Fixed Version: %s\n", fix))
-			}
-		}
-	}
-	
-	// Code context if available
-	if codeContext != "" {
-		prompt.WriteString("\nCode Context:\n```\n")
-		prompt.WriteString(codeContext)
-		prompt.WriteString("\n```\n")
-	}
-	
-	prompt.WriteString("\nProvide:\n")
-	prompt.WriteString("1. Simple explanation (2-3 sentences)\n")
-	prompt.WriteString("2. Why this is dangerous\n")
-	prompt.WriteString("3. How to fix it (be specific and practical)\n")
-	prompt.WriteString("4. Prevention tips\n")
-	prompt.WriteString("\nBe concise and actionable. Use clear language.")
-	
-	return prompt.String()
-}
 
-// GetCodeContext retrieves code context around a finding
-func GetCodeContext(file string, line int, contextLines int) string {
-	if file == "" || line <= 0 {
-		return ""
-	}
-	
-	data, err := os.ReadFile(file)
+	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return ""
+		return "", err
 	}
-	
-	lines := strings.Split(string(data), "\n")
-	if line > len(lines) {
-		return ""
-	}
-	
-	start := line - contextLines - 1
-	if start < 0 {
-		start = 0
-	}
-	
-	end := line + contextLines
-	if end > len(lines) {
-		end = len(lines)
-	}
-	
-	var context strings.Builder
-	for i := start; i < end; i++ {
-		prefix := "  "
-		if i == line-1 {
-			prefix = "> " // Mark the actual line
-		}
-		context.WriteString(fmt.Sprintf("%s%4d | %s\n", prefix, i+1, lines[i]))
-	}
-	
-	return context.String()
-}
 
-// ExplainFinding provides AI-powered explanation for a finding
-func ExplainFinding(finding Finding) error {
-	provider := NewAIProvider()
-	
-	if !provider.IsConfigured() {
-		return showAISetupInstructions()
-	}
-	
-	PrintInfo(fmt.Sprintf("Getting AI explanation from %s...", provider.GetName()))
-	
-	// Get code context if available
-	codeContext := GetCodeContext(finding.File, finding.Line, 3)
-	
-	explanation, err := provider.Explain(finding, codeContext)
+	req, err := http.NewRequest("POST", config.BaseURL, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("AI explanation failed: %w", err)
+		return "", err
 	}
-	
-	// Display the explanation nicely
-	displayExplanation(finding, explanation)
-	
-	return nil
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+config.APIKey)
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var openaiResp OpenAIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&openaiResp); err != nil {
+		return "", err
+	}
+
+	if len(openaiResp.Choices) == 0 {
+		return "", fmt.Errorf("no choices in response")
+	}
+
+	return openaiResp.Choices[0].Message.Content, nil
 }
 
-// displayExplanation shows the AI explanation in a nice format
-func displayExplanation(finding Finding, explanation string) {
-	fmt.Println()
-	PrintSectionHeader(fmt.Sprintf("AI EXPLANATION - %s", finding.Title))
-	fmt.Println()
-	
-	// Show finding summary
-	fmt.Printf("%s%s%s\n", Bold, finding.Title, Reset)
-	if finding.CVE != "" {
-		fmt.Printf("%sCVE:%s %s\n", Dim, Reset, finding.CVE)
+func callOllama(config *AIConfig, prompt string) (string, error) {
+	reqBody := OllamaRequest{
+		Model:  config.Model,
+		Prompt: prompt,
+		Stream: false,
 	}
-	fmt.Printf("%sSeverity:%s %s\n", Dim, Reset, ColorSeverity(finding.Severity))
-	if finding.File != "" {
-		location := finding.File
-		if finding.Line > 0 {
-			location += fmt.Sprintf(":%d", finding.Line)
-		}
-		fmt.Printf("%sLocation:%s %s\n", Dim, Reset, location)
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", err
 	}
-	
-	fmt.Println()
-	fmt.Println(strings.Repeat("─", 70))
-	fmt.Println()
-	
-	// Display AI explanation with light formatting
-	lines := strings.Split(explanation, "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "**") {
-			fmt.Printf("%s%s%s\n", Bold, strings.Trim(line, "# *"), Reset)
-		} else if strings.TrimSpace(line) != "" {
-			fmt.Println(line)
-		} else {
-			fmt.Println()
-		}
+
+	req, err := http.NewRequest("POST", config.BaseURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", err
 	}
-	
-	PrintSectionFooter()
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var ollamaResp OllamaResponse
+	if err := json.NewDecoder(resp.Body).Decode(&ollamaResp); err != nil {
+		return "", err
+	}
+
+	return ollamaResp.Response, nil
 }
 
-// showAISetupInstructions shows how to configure AI
-func showAISetupInstructions() error {
-	fmt.Println()
-	PrintWarning("AI features require configuration")
-	fmt.Println()
-	fmt.Println("Choose one of the following options:")
-	fmt.Println()
+func parseExplanation(aiResponse string, findings []Finding) *ExplanationResponse {
+	response := &ExplanationResponse{
+		Explanations:    make([]FindingExplanation, 0),
+		Recommendations: make([]string, 0),
+	}
+
+	// Simple parsing - split by sections
+	sections := strings.Split(aiResponse, "\n\n")
 	
-	fmt.Printf("%s%s1. OpenAI (ChatGPT) - Recommended%s\n", Bold, BrightCyan, Reset)
-	fmt.Println("   export OPENAI_API_KEY='sk-...'")
-	fmt.Println("   export OPENAI_MODEL='gpt-4o-mini'  # Optional, default: gpt-4o-mini")
-	fmt.Println("   Get API key: https://platform.openai.com/api-keys")
-	fmt.Println()
+	for _, section := range sections {
+		section = strings.TrimSpace(section)
+		
+		if strings.HasPrefix(section, "SUMMARY:") {
+			response.Summary = strings.TrimPrefix(section, "SUMMARY:")
+			response.Summary = strings.TrimSpace(response.Summary)
+		} else if strings.Contains(section, "RECOMMENDATIONS:") {
+			// Extract recommendations
+			lines := strings.Split(section, "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line != "" && line != "RECOMMENDATIONS:" && !strings.HasPrefix(line, "RECOMMENDATIONS:") {
+					// Remove bullet points and numbers
+					line = strings.TrimPrefix(line, "-")
+					line = strings.TrimPrefix(line, "*")
+					line = strings.TrimSpace(line)
+					if len(line) > 0 && line[0] >= '0' && line[0] <= '9' {
+						// Remove leading numbers
+						parts := strings.SplitN(line, ".", 2)
+						if len(parts) == 2 {
+							line = strings.TrimSpace(parts[1])
+						}
+					}
+					if line != "" {
+						response.Recommendations = append(response.Recommendations, line)
+					}
+				}
+			}
+		}
+	}
+
+	// If we couldn't parse properly, use the whole response as summary
+	if response.Summary == "" {
+		response.Summary = aiResponse
+	}
+
+	return response
+}
+
+// FormatExplanation formats the explanation for terminal output
+func FormatExplanation(response *ExplanationResponse) string {
+	var sb strings.Builder
 	
-	fmt.Printf("%s%s2. Anthropic Claude%s\n", Bold, BrightCyan, Reset)
-	fmt.Println("   export ANTHROPIC_API_KEY='sk-ant-...'")
-	fmt.Println("   export ANTHROPIC_MODEL='claude-3-5-sonnet-20241022'  # Optional")
-	fmt.Println("   Get API key: https://console.anthropic.com/")
-	fmt.Println()
+	sb.WriteString("\n╔══════════════════════════════════════════════════════════╗\n")
+	sb.WriteString("║        🤖 AI SECURITY ANALYSIS                           ║\n")
+	sb.WriteString("╚══════════════════════════════════════════════════════════╝\n\n")
 	
-	fmt.Printf("%s%s3. Ollama (Local, Free, Private)%s\n", Bold, BrightCyan, Reset)
-	fmt.Println("   # Install Ollama")
-	fmt.Println("   curl -fsSL https://ollama.com/install.sh | sh")
-	fmt.Println("   ")
-	fmt.Println("   # Pull a model")
-	fmt.Println("   ollama pull llama3.2")
-	fmt.Println("   ")
-	fmt.Println("   # Start Ollama (runs on http://localhost:11434)")
-	fmt.Println("   ollama serve")
-	fmt.Println("   ")
-	fmt.Println("   # Optional: Configure")
-	fmt.Println("   export OLLAMA_ENDPOINT='http://localhost:11434'  # Optional")
-	fmt.Println("   export OLLAMA_MODEL='llama3.2'  # Optional, default: llama3.2")
-	fmt.Println()
+	sb.WriteString("📊 SUMMARY\n")
+	sb.WriteString("─────────────────────────────────────────────────────────\n")
+	sb.WriteString(wrapText(response.Summary, 70))
+	sb.WriteString("\n\n")
 	
-	fmt.Println("After configuring, try:")
-	fmt.Printf("  %snimbis explain%s\n", BrightCyan, Reset)
-	fmt.Println()
+	if len(response.Recommendations) > 0 {
+		sb.WriteString("💡 KEY RECOMMENDATIONS\n")
+		sb.WriteString("─────────────────────────────────────────────────────────\n")
+		for i, rec := range response.Recommendations {
+			sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, wrapText(rec, 67)))
+		}
+		sb.WriteString("\n")
+	}
 	
-	return fmt.Errorf("AI not configured")
+	return sb.String()
+}
+
+func wrapText(text string, width int) string {
+	if len(text) <= width {
+		return text
+	}
+	
+	var result strings.Builder
+	words := strings.Fields(text)
+	lineLen := 0
+	
+	for _, word := range words {
+		if lineLen+len(word)+1 > width {
+			result.WriteString("\n")
+			lineLen = 0
+		}
+		if lineLen > 0 {
+			result.WriteString(" ")
+			lineLen++
+		}
+		result.WriteString(word)
+		lineLen += len(word)
+	}
+	
+	return result.String()
 }
