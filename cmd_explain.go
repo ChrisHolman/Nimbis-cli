@@ -115,21 +115,21 @@ func runExplainAI(cmd *cobra.Command, args []string) error {
 
 	// Configure AI provider
 	fmt.Println("🔧 Configuring AI provider...")
-	config, err := GetAIConfig()
+	aiConfig, err := GetAIConfig()
 	if err != nil {
 		return fmt.Errorf("AI configuration failed: %w\n\nTo use AI explanations, set one of:\n  • ANTHROPIC_API_KEY=your-key\n  • OPENAI_API_KEY=your-key\n  • Run Ollama locally (http://localhost:11434)", err)
 	}
 
-	providerName := string(config.Provider)
-	if config.Provider == ProviderAnthropic {
+	providerName := string(aiConfig.Provider)
+	if aiConfig.Provider == ProviderAnthropic {
 		providerName = "Anthropic Claude"
-	} else if config.Provider == ProviderOpenAI {
+	} else if aiConfig.Provider == ProviderOpenAI {
 		providerName = "OpenAI GPT"
-	} else if config.Provider == ProviderOllama {
+	} else if aiConfig.Provider == ProviderOllama {
 		providerName = "Ollama (local)"
 	}
 	
-	fmt.Printf("  ✓ Using %s (%s)\n", providerName, config.Model)
+	fmt.Printf("  ✓ Using %s (%s)\n", providerName, aiConfig.Model)
 	fmt.Println()
 
 	// Filter findings by severity only if --min-severity is explicitly set
