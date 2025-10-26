@@ -172,10 +172,16 @@ func ExplainFindings(config *AIConfig, request ExplanationRequest) (*Explanation
 func buildExplanationPrompt(request ExplanationRequest) string {
 	var sb strings.Builder
 	
-	sb.WriteString("You are a security expert. Analyze these security findings and provide:\n")
-	sb.WriteString("1. A brief summary of the overall security posture\n")
-	sb.WriteString("2. For each finding: a plain-language explanation and concrete fix steps\n")
-	sb.WriteString("3. Prioritized recommendations\n\n")
+	sb.WriteString("You are a security expert. Analyze these security findings and provide a clear, actionable response.\n\n")
+	sb.WriteString("IMPORTANT: Format your response as plain text without markdown. Use simple formatting:\n")
+	sb.WriteString("- Use blank lines to separate sections\n")
+	sb.WriteString("- Use simple bullets (•) for lists\n")
+	sb.WriteString("- Keep explanations concise and practical\n")
+	sb.WriteString("- Avoid technical jargon where possible\n\n")
+	
+	sb.WriteString("Provide:\n")
+	sb.WriteString("1. A 2-3 sentence summary of the overall security situation\n")
+	sb.WriteString("2. Key recommendations (3-5 prioritized action items)\n\n")
 	
 	sb.WriteString("Security Findings:\n\n")
 	
@@ -219,12 +225,15 @@ func buildExplanationPrompt(request ExplanationRequest) string {
 		sb.WriteString("\n")
 	}
 	
-	sb.WriteString("\nProvide your analysis in this format:\n")
-	sb.WriteString("SUMMARY: [brief overall assessment]\n\n")
-	sb.WriteString("FINDINGS:\n")
-	sb.WriteString("[For each finding, number them and provide explanation and fix steps]\n\n")
+	sb.WriteString("\nProvide your analysis in this format:\n\n")
+	sb.WriteString("SUMMARY:\n")
+	sb.WriteString("[Write 2-3 clear sentences summarizing the main security issues and their impact]\n\n")
 	sb.WriteString("RECOMMENDATIONS:\n")
-	sb.WriteString("[Prioritized list of actions to take]\n")
+	sb.WriteString("1. [First action - be specific]\n")
+	sb.WriteString("2. [Second action]\n")
+	sb.WriteString("3. [Third action]\n")
+	sb.WriteString("etc.\n\n")
+	sb.WriteString("Keep it practical and actionable. Avoid markdown formatting, code blocks, or complex formatting.\n")
 	
 	return sb.String()
 }
@@ -425,19 +434,53 @@ func FormatExplanation(response *ExplanationResponse) string {
 	
 	sb.WriteString("📊 SUMMARY\n")
 	sb.WriteString("─────────────────────────────────────────────────────────\n")
-	sb.WriteString(wrapText(response.Summary, 70))
+	
+	// Clean and wrap the summary
+	cleanSummary := cleanMarkdown(response.Summary)
+	sb.WriteString(wrapText(cleanSummary, 70))
 	sb.WriteString("\n\n")
 	
 	if len(response.Recommendations) > 0 {
 		sb.WriteString("💡 KEY RECOMMENDATIONS\n")
 		sb.WriteString("─────────────────────────────────────────────────────────\n")
 		for i, rec := range response.Recommendations {
-			sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, wrapText(rec, 67)))
+			cleanRec := cleanMarkdown(rec)
+			sb.WriteString(fmt.Sprintf("%d. %s\n\n", i+1, wrapText(cleanRec, 67)))
 		}
-		sb.WriteString("\n")
 	}
 	
 	return sb.String()
+}
+
+// cleanMarkdown removes markdown formatting for better terminal display
+func cleanMarkdown(text string) string {
+	// Remove markdown headers
+	text = strings.ReplaceAll(text, "## ", "")
+	text = strings.ReplaceAll(text, "# ", "")
+	
+	// Remove bold/italic markers
+	text = strings.ReplaceAll(text, "**", "")
+	text = strings.ReplaceAll(text, "*", "")
+	text = strings.ReplaceAll(text, "__", "")
+	text = strings.ReplaceAll(text, "_", "")
+	
+	// Remove code blocks
+	text = strings.ReplaceAll(text, "```dockerfile", "")
+	text = strings.ReplaceAll(text, "```yaml", "")
+	text = strings.ReplaceAll(text, "```", "")
+	text = strings.ReplaceAll(text, "`", "")
+	
+	// Clean up extra spaces and newlines
+	lines := strings.Split(text, "\n")
+	var cleaned []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			cleaned = append(cleaned, line)
+		}
+	}
+	
+	return strings.Join(cleaned, " ")
 }
 
 func wrapText(text string, width int) string {
