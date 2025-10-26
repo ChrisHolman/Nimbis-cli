@@ -39,6 +39,8 @@ func main() {
 to identify IaC misconfigurations, secrets, SAST issues, SCA vulnerabilities, and generate SBOMs.`,
 		Version: version,
 		RunE:    runScan,
+		SilenceUsage: true,  // Don't print usage on errors
+		SilenceErrors: true, // We'll handle errors ourselves
 	}
 
 	// Global flags
