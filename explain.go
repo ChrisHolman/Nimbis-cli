@@ -190,14 +190,25 @@ func buildExplanationPrompt(request ExplanationRequest) string {
 		if finding.CVE != "" {
 			sb.WriteString(fmt.Sprintf("CVE: %s\n", finding.CVE))
 		}
-		if finding.Package != "" {
-			sb.WriteString(fmt.Sprintf("Package: %s\n", finding.Package))
+		// Extract package info from Extra map
+		if finding.Extra != nil {
+			if pkg, ok := finding.Extra["package"]; ok && pkg != "" {
+				sb.WriteString(fmt.Sprintf("Package: %s\n", pkg))
+			}
+			if version, ok := finding.Extra["installed_version"]; ok && version != "" {
+				sb.WriteString(fmt.Sprintf("Installed Version: %s\n", version))
+			}
+			if fixedVer, ok := finding.Extra["fixed_version"]; ok && fixedVer != "" {
+				sb.WriteString(fmt.Sprintf("Fixed Version: %s\n", fixedVer))
+			}
 		}
-		if finding.Version != "" {
-			sb.WriteString(fmt.Sprintf("Version: %s\n", finding.Version))
-		}
-		if finding.Location != "" {
-			sb.WriteString(fmt.Sprintf("Location: %s\n", finding.Location))
+		// Use File field for location
+		if finding.File != "" {
+			location := finding.File
+			if finding.Line > 0 {
+				location += fmt.Sprintf(":%d", finding.Line)
+			}
+			sb.WriteString(fmt.Sprintf("Location: %s\n", location))
 		}
 		if finding.Description != "" {
 			sb.WriteString(fmt.Sprintf("Description: %s\n", finding.Description))
