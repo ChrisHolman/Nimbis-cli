@@ -29,7 +29,7 @@ var (
 
 func init() {
 	explainCmd.Flags().IntVar(&explainMaxFindings, "max", 10, "Maximum number of findings to explain")
-	explainCmd.Flags().StringVar(&explainSeverity, "min-severity", "HIGH", "Minimum severity to explain (LOW, MEDIUM, HIGH, CRITICAL)")
+	explainCmd.Flags().StringVar(&explainSeverity, "min-severity", "", "Minimum severity to explain (LOW, MEDIUM, HIGH, CRITICAL). If not set, explains all findings from scan")
 	explainCmd.Flags().StringVar(&explainProvider, "provider", "", "Force specific AI provider (anthropic, openai, ollama)")
 	explainCmd.Flags().BoolVar(&explainInteractive, "interactive", false, "Interactive mode - ask questions about findings")
 }
@@ -48,7 +48,7 @@ func runExplainAI(cmd *cobra.Command, args []string) error {
 			TargetPath:     targetPath,
 			OutputFormat:   "json",
 			OutputFile:     resultsFile,
-			MinSeverity:    "LOW",
+			MinSeverity:    "LOW", // Scan everything, filter later
 			FailOnSeverity: "CRITICAL",
 			Parallel:       true,
 			Verbose:        false,
@@ -119,8 +119,12 @@ func runExplainAI(cmd *cobra.Command, args []string) error {
 
 	// Limit findings to explain
 	if len(filteredFindings) > explainMaxFindings {
-		fmt.Printf("📊 Explaining top %d of %d findings (use --max to adjust)\n\n", 
-			explainMaxFindings, len(filteredFindings))
+		fmt.Printf("📊 Explaining top %d of %d findings at %s+ severity (use --max to adjust)\n\n", 
+			explainMaxFindings, len(filteredFindings), explainSeverity)
+		filteredFindings = filteredFindings[:explainMaxFindings]
+	} else {
+		fmt.Printf("📊 Explaining %d findings at %s+ severity\n\n", len(filteredFindings), explainSeverity)
+	}Findings, len(filteredFindings))
 		filteredFindings = filteredFindings[:explainMaxFindings]
 	} else {
 		fmt.Printf("📊 Explaining %d findings\n\n", len(filteredFindings))
