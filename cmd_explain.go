@@ -109,25 +109,36 @@ func runExplainAI(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  ✓ Using %s (%s)\n", providerName, config.Model)
 	fmt.Println()
 
-	// Filter findings by severity
-	filteredFindings := filterFindingsBySeverity(allFindings, explainSeverity)
-	
-	if len(filteredFindings) == 0 {
-		fmt.Printf("No findings at or above %s severity\n", explainSeverity)
-		return nil
+	// Filter findings by severity only if --min-severity is explicitly set
+	var filteredFindings []Finding
+	if explainSeverity != "" {
+		filteredFindings = filterFindingsBySeverity(allFindings, explainSeverity)
+		
+		if len(filteredFindings) == 0 {
+			fmt.Printf("No findings at or above %s severity\n", explainSeverity)
+			return nil
+		}
+	} else {
+		// No filter - explain all findings from scan
+		filteredFindings = allFindings
 	}
 
 	// Limit findings to explain
 	if len(filteredFindings) > explainMaxFindings {
-		fmt.Printf("📊 Explaining top %d of %d findings at %s+ severity (use --max to adjust)\n\n", 
-			explainMaxFindings, len(filteredFindings), explainSeverity)
+		if explainSeverity != "" {
+			fmt.Printf("📊 Explaining top %d of %d findings at %s+ severity (use --max to adjust)\n\n", 
+				explainMaxFindings, len(filteredFindings), explainSeverity)
+		} else {
+			fmt.Printf("📊 Explaining top %d of %d findings (use --max to adjust)\n\n", 
+				explainMaxFindings, len(filteredFindings))
+		}
 		filteredFindings = filteredFindings[:explainMaxFindings]
 	} else {
-		fmt.Printf("📊 Explaining %d findings at %s+ severity\n\n", len(filteredFindings), explainSeverity)
-	}Findings, len(filteredFindings))
-		filteredFindings = filteredFindings[:explainMaxFindings]
-	} else {
-		fmt.Printf("📊 Explaining %d findings\n\n", len(filteredFindings))
+		if explainSeverity != "" {
+			fmt.Printf("📊 Explaining %d findings at %s+ severity\n\n", len(filteredFindings), explainSeverity)
+		} else {
+			fmt.Printf("📊 Explaining all %d findings\n\n", len(filteredFindings))
+		}
 	}
 
 	// Create explanation request
