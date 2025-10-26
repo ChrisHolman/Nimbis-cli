@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -62,14 +61,7 @@ to identify IaC misconfigurations, secrets, SAST issues, SCA vulnerabilities, an
 	rootCmd.Flags().BoolVar(&scanContainer, "container", false, "Scan container image")
 	rootCmd.Flags().BoolVar(&generateSBOM, "sbom", false, "Generate Software Bill of Materials")
 
-	// Add explain command
-	explainCmd := &cobra.Command{
-		Use:   "explain",
-		Short: "Get AI-powered explanations for security findings",
-		Long: `Use AI to explain security findings in plain language with actionable fix suggestions.
-Supports OpenAI, Anthropic Claude, and local Ollama models.`,
-		RunE: runExplain,
-	}
+	// Add explain command from command_explain.go
 	rootCmd.AddCommand(explainCmd)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -106,81 +98,4 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	scanner := NewScanner(config)
 	return scanner.Run()
-}
-
-func runExplain(cmd *cobra.Command, args []string) error {
-	// First, run a scan to get findings
-	if outputFile == "" {
-		outputFile = "nimbis-results.json"
-	}
-	
-	// Run scan quietly
-	fmt.Println("🔍 Scanning for vulnerabilities...")
-	config := &ScanConfig{
-		TargetPath:     targetPath,
-		OutputFormat:   "json",
-		OutputFile:     outputFile,
-		MinSeverity:    severity,
-		FailOnSeverity: failOnSeverity,
-		Parallel:       parallel,
-		Verbose:        false,
-		AutoInstall:    autoInstall,
-		Quiet:          true,
-		ScanTypes: ScanTypes{
-			IaC:       true,
-			Secrets:   true,
-			SAST:      true,
-			SCA:       true,
-			Container: false,
-			SBOM:      false,
-		},
-	}
-	
-	scanner := NewScanner(config)
-	if err := scanner.Run(); err != nil {
-		return err
-	}
-	
-	// Get findings
-	results := scanner.results
-	allFindings := append(results.IaCResults, results.SecretResults...)
-	allFindings = append(allFindings, results.SASTResults...)
-	allFindings = append(allFindings, results.SCAResults...)
-	
-	if len(allFindings) == 0 {
-		PrintSuccess("No security findings to explain! 🎉")
-		return nil
-	}
-	
-	// Show interactive menu
-	fmt.Println()
-	fmt.Printf("%sFound %d security findings%s\n\n", Bold, len(allFindings), Reset)
-	
-	// Group by severity and show top issues
-	criticalFindings := []Finding{}
-	highFindings := []Finding{}
-	
-	for _, f := range allFindings {
-		if strings.ToUpper(f.Severity) == "CRITICAL" {
-			criticalFindings = append(criticalFindings, f)
-		} else if strings.ToUpper(f.Severity) == "HIGH" {
-			highFindings = append(highFindings, f)
-		}
-	}
-	
-	// Explain the most critical finding automatically
-	var findingToExplain Finding
-	if len(criticalFindings) > 0 {
-		findingToExplain = criticalFindings[0]
-		fmt.Printf("Explaining most critical finding:\n\n")
-	} else if len(highFindings) > 0 {
-		findingToExplain = highFindings[0]
-		fmt.Printf("Explaining highest severity finding:\n\n")
-	} else {
-		findingToExplain = allFindings[0]
-		fmt.Printf("Explaining finding:\n\n")
-	}
-	
-	// Explain the finding
-	return ExplainFinding(findingToExplain)
 }
