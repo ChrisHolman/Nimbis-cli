@@ -16,7 +16,26 @@ var explainCmd = &cobra.Command{
 	Use:   "explain",
 	Short: "Explain security findings using AI",
 	Long: `Use AI to explain security findings in plain language with actionable fix suggestions.
-Supports OpenAI, Anthropic Claude, and local Ollama models.`,
+Supports OpenAI, Anthropic Claude, and local Ollama models.
+
+The explain command will use existing scan results if available. If no results exist,
+it will run a scan first, respecting the global --severity flag.
+
+Examples:
+  # Explain all findings from existing scan
+  nimbis explain
+
+  # Scan for HIGH+ findings and explain them
+  nimbis --severity HIGH explain
+
+  # Explain top 20 findings
+  nimbis explain --max 20
+
+  # Scan for CRITICAL and explain all of them
+  nimbis --severity CRITICAL explain --max 100
+
+  # Only explain CRITICAL findings from existing scan results
+  nimbis explain --min-severity CRITICAL`,
 	RunE: runExplainAI,
 }
 
@@ -43,12 +62,18 @@ func runExplainAI(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(resultsFile); os.IsNotExist(err) {
 		fmt.Println("📋 No existing scan results found. Running scan first...")
 		
+		// Use the global severity flag if set, otherwise scan everything
+		scanSeverity := severity
+		if scanSeverity == "" || scanSeverity == "LOW" {
+			scanSeverity = "LOW"
+		}
+		
 		// Create a scanner with all scan types enabled
 		config := &ScanConfig{
 			TargetPath:     targetPath,
 			OutputFormat:   "json",
 			OutputFile:     resultsFile,
-			MinSeverity:    "LOW", // Scan everything, filter later
+			MinSeverity:    scanSeverity, // Respect global --severity flag
 			FailOnSeverity: "CRITICAL",
 			Parallel:       true,
 			Verbose:        false,
