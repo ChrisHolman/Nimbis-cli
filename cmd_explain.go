@@ -173,7 +173,7 @@ func runExplainAI(cmd *cobra.Command, args []string) error {
 
 	// Get AI explanation
 	fmt.Println("💭 Analyzing findings with AI...")
-	explanation, err := ExplainFindings(config, request)
+	explanation, err = ExplainFindings(aiConfig, request)
 	if err != nil {
 		return fmt.Errorf("explanation failed: %w", err)
 	}
