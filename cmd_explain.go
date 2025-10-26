@@ -10,12 +10,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// This replaces the existing command_explain.go file completely
+
 var explainCmd = &cobra.Command{
 	Use:   "explain",
 	Short: "Explain security findings using AI",
 	Long: `Use AI to explain security findings in plain language with actionable fix suggestions.
 Supports OpenAI, Anthropic Claude, and local Ollama models.`,
-	RunE: runExplain,
+	RunE: runExplainAI,
 }
 
 var (
@@ -30,11 +32,9 @@ func init() {
 	explainCmd.Flags().StringVar(&explainSeverity, "min-severity", "HIGH", "Minimum severity to explain (LOW, MEDIUM, HIGH, CRITICAL)")
 	explainCmd.Flags().StringVar(&explainProvider, "provider", "", "Force specific AI provider (anthropic, openai, ollama)")
 	explainCmd.Flags().BoolVar(&explainInteractive, "interactive", false, "Interactive mode - ask questions about findings")
-	
-	rootCmd.AddCommand(explainCmd)
 }
 
-func runExplain(cmd *cobra.Command, args []string) error {
+func runExplainAI(cmd *cobra.Command, args []string) error {
 	fmt.Println("🤖 Nimbis AI Explanation")
 	fmt.Println()
 
@@ -42,8 +42,32 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	resultsFile := "nimbis-results.json"
 	if _, err := os.Stat(resultsFile); os.IsNotExist(err) {
 		fmt.Println("📋 No existing scan results found. Running scan first...")
-		if err := runScan(cmd, args); err != nil {
-			return fmt.Errorf("scan failed: %w", err)
+		
+		// Create a scanner with all scan types enabled
+		config := &ScanConfig{
+			TargetPath:     targetPath,
+			OutputFormat:   "json",
+			OutputFile:     resultsFile,
+			MinSeverity:    "LOW",
+			FailOnSeverity: "CRITICAL",
+			Parallel:       true,
+			Verbose:        false,
+			AutoInstall:    autoInstall,
+			Quiet:          true,
+			ScanTypes: ScanTypes{
+				IaC:     true,
+				Secrets: true,
+				SAST:    true,
+				SCA:     true,
+			},
+		}
+		
+		scanner := NewScanner(config)
+		if err := scanner.Run(); err != nil {
+			// Ignore exit errors from findings, we still want to explain them
+			if !strings.Contains(err.Error(), "scan failed: found") {
+				return fmt.Errorf("scan failed: %w", err)
+			}
 		}
 		fmt.Println()
 	}
@@ -54,7 +78,14 @@ func runExplain(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load scan results: %w", err)
 	}
 
-	if len(results.Findings) == 0 {
+	// Combine all findings from different result arrays
+	allFindings := make([]Finding, 0)
+	allFindings = append(allFindings, results.IaCResults...)
+	allFindings = append(allFindings, results.SecretResults...)
+	allFindings = append(allFindings, results.SASTResults...)
+	allFindings = append(allFindings, results.SCAResults...)
+
+	if len(allFindings) == 0 {
 		fmt.Println("✅ No security findings to explain. Your code looks good!")
 		return nil
 	}
@@ -79,7 +110,7 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	// Filter findings by severity
-	filteredFindings := filterFindingsBySeverity(results.Findings, explainSeverity)
+	filteredFindings := filterFindingsBySeverity(allFindings, explainSeverity)
 	
 	if len(filteredFindings) == 0 {
 		fmt.Printf("No findings at or above %s severity\n", explainSeverity)
@@ -178,7 +209,6 @@ func filterFindingsBySeverity(findings []Finding, minSeverity string) []Finding 
 	}
 
 	// Sort by severity (highest first)
-	// Simple bubble sort for now
 	for i := 0; i < len(filtered)-1; i++ {
 		for j := 0; j < len(filtered)-i-1; j++ {
 			if severityOrder[filtered[j].Severity] < severityOrder[filtered[j+1].Severity] {
@@ -212,16 +242,23 @@ func displayFindingDetail(finding Finding) {
 		fmt.Printf("   CVE: %s\n", finding.CVE)
 	}
 	
-	if finding.Package != "" {
-		packageInfo := finding.Package
-		if finding.Version != "" {
-			packageInfo += fmt.Sprintf(" (v%s)", finding.Version)
+	// Get package info from Extra map
+	if finding.Extra != nil {
+		if pkg, ok := finding.Extra["package"]; ok && pkg != "" {
+			packageInfo := pkg
+			if version, ok := finding.Extra["installed_version"]; ok && version != "" {
+				packageInfo += fmt.Sprintf(" (v%s)", version)
+			}
+			fmt.Printf("   📦 Package: %s\n", packageInfo)
 		}
-		fmt.Printf("   📦 Package: %s\n", packageInfo)
 	}
 	
-	if finding.Location != "" {
-		fmt.Printf("   📍 Location: %s\n", finding.Location)
+	if finding.File != "" {
+		location := finding.File
+		if finding.Line > 0 {
+			location += fmt.Sprintf(":%d", finding.Line)
+		}
+		fmt.Printf("   📍 Location: %s\n", location)
 	}
 	
 	if finding.Description != "" && len(finding.Description) < 150 {
@@ -275,15 +312,22 @@ func saveExplanation(filename string, explanation *ExplanationResponse, findings
 		if finding.CVE != "" {
 			f.WriteString(fmt.Sprintf("   CVE: %s\n", finding.CVE))
 		}
-		if finding.Package != "" {
-			f.WriteString(fmt.Sprintf("   Package: %s", finding.Package))
-			if finding.Version != "" {
-				f.WriteString(fmt.Sprintf(" (v%s)", finding.Version))
+		// Get package from Extra map
+		if finding.Extra != nil {
+			if pkg, ok := finding.Extra["package"]; ok && pkg != "" {
+				f.WriteString(fmt.Sprintf("   Package: %s", pkg))
+				if version, ok := finding.Extra["installed_version"]; ok && version != "" {
+					f.WriteString(fmt.Sprintf(" (v%s)", version))
+				}
+				f.WriteString("\n")
 			}
-			f.WriteString("\n")
 		}
-		if finding.Location != "" {
-			f.WriteString(fmt.Sprintf("   Location: %s\n", finding.Location))
+		if finding.File != "" {
+			location := finding.File
+			if finding.Line > 0 {
+				location += fmt.Sprintf(":%d", finding.Line)
+			}
+			f.WriteString(fmt.Sprintf("   Location: %s\n", location))
 		}
 		if finding.Description != "" {
 			f.WriteString(fmt.Sprintf("   Description: %s\n", finding.Description))
