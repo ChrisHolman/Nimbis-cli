@@ -4,9 +4,63 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 )
+
+// Helper functions for binary detection
+func findBinary(binaryName string) (string, error) {
+	// Add .exe extension on Windows if not present
+	if runtime.GOOS == "windows" && !strings.HasSuffix(binaryName, ".exe") {
+		binaryName += ".exe"
+	}
+	
+	// First, check system PATH
+	if path, err := exec.LookPath(binaryName); err == nil {
+		return path, nil
+	}
+	
+	// Then check Nimbis cache directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("could not get home directory: %w", err)
+	}
+	
+	cachePath := filepath.Join(homeDir, ".nimbis", "scanners", binaryName)
+	
+	// Check if binary exists in cache
+	if _, err := os.Stat(cachePath); err == nil {
+		// Verify it's executable (Unix only)
+		if runtime.GOOS != "windows" {
+			if info, err := os.Stat(cachePath); err == nil {
+				if info.Mode()&0111 != 0 {
+					return cachePath, nil
+				}
+			}
+		} else {
+			// On Windows, just check if file exists
+			return cachePath, nil
+		}
+	}
+	
+	return "", fmt.Errorf("binary %s not found in PATH or Nimbis cache", binaryName)
+}
+
+func isBinaryAvailable(binaryName string) bool {
+	_, err := findBinary(binaryName)
+	return err == nil
+}
+
+func getBinaryPath(binaryName string) string {
+	path, err := findBinary(binaryName)
+	if err != nil {
+		return binaryName // Fallback to just the name
+	}
+	return path
+}
 
 // CheckovScanner implements IaC scanning using Checkov
 type CheckovScanner struct{}
@@ -20,18 +74,19 @@ func (c *CheckovScanner) Name() string {
 }
 
 func (c *CheckovScanner) IsAvailable() bool {
-	_, err := exec.LookPath("checkov")
-	return err == nil
+	return isBinaryAvailable("checkov")
 }
 
 func (c *CheckovScanner) Scan(config *ScanConfig) ([]Finding, error) {
+	checkovPath := getBinaryPath("checkov")
+	
 	args := []string{
 		"-d", config.TargetPath,
 		"--output", "json",
 		"--quiet",
 	}
 
-	cmd := exec.Command("checkov", args...)
+	cmd := exec.Command(checkovPath, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Checkov returns non-zero when findings exist
@@ -126,11 +181,12 @@ func (t *TruffleHogScanner) Name() string {
 }
 
 func (t *TruffleHogScanner) IsAvailable() bool {
-	_, err := exec.LookPath("trufflehog")
-	return err == nil
+	return isBinaryAvailable("trufflehog")
 }
 
 func (t *TruffleHogScanner) Scan(config *ScanConfig) ([]Finding, error) {
+	trufflehogPath := getBinaryPath("trufflehog")
+	
 	args := []string{
 		"filesystem",
 		config.TargetPath,
@@ -138,7 +194,7 @@ func (t *TruffleHogScanner) Scan(config *ScanConfig) ([]Finding, error) {
 		"--no-update",
 	}
 
-	cmd := exec.Command("trufflehog", args...)
+	cmd := exec.Command(trufflehogPath, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if len(output) == 0 {
@@ -196,11 +252,12 @@ func (o *OpenGrepScanner) Name() string {
 }
 
 func (o *OpenGrepScanner) IsAvailable() bool {
-	_, err := exec.LookPath("opengrep")
-	return err == nil
+	return isBinaryAvailable("opengrep")
 }
 
 func (o *OpenGrepScanner) Scan(config *ScanConfig) ([]Finding, error) {
+	opengrepPath := getBinaryPath("opengrep")
+	
 	args := []string{
 		"scan",
 		"--config", "auto",
@@ -213,7 +270,7 @@ func (o *OpenGrepScanner) Scan(config *ScanConfig) ([]Finding, error) {
 		args = append(args, config.TargetPath)
 	}
 
-	cmd := exec.Command("opengrep", args...)
+	cmd := exec.Command(opengrepPath, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// OpenGrep returns non-zero when findings exist
@@ -288,18 +345,19 @@ func (g *GrypeScanner) Name() string {
 }
 
 func (g *GrypeScanner) IsAvailable() bool {
-	_, err := exec.LookPath("grype")
-	return err == nil
+	return isBinaryAvailable("grype")
 }
 
 func (g *GrypeScanner) Scan(config *ScanConfig) ([]Finding, error) {
+	grypePath := getBinaryPath("grype")
+	
 	args := []string{
 		"dir:" + config.TargetPath,
 		"-o", "json",
 		"-q",
 	}
 
-	cmd := exec.Command("grype", args...)
+	cmd := exec.Command(grypePath, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Grype returns non-zero when vulnerabilities found
@@ -384,8 +442,7 @@ func (s *SyftScanner) Name() string {
 }
 
 func (s *SyftScanner) IsAvailable() bool {
-	_, err := exec.LookPath("syft")
-	return err == nil
+	return isBinaryAvailable("syft")
 }
 
 func (s *SyftScanner) Scan(config *ScanConfig) ([]Finding, error) {
@@ -396,6 +453,8 @@ func (s *SyftScanner) Scan(config *ScanConfig) ([]Finding, error) {
 
 // GenerateSBOM generates an SBOM using Syft
 func (s *SyftScanner) GenerateSBOM(targetPath string) (*SBOMData, error) {
+	syftPath := getBinaryPath("syft")
+	
 	args := []string{
 		"scan",
 		"dir:" + targetPath,
@@ -403,7 +462,7 @@ func (s *SyftScanner) GenerateSBOM(targetPath string) (*SBOMData, error) {
 		"--quiet",
 	}
 
-	cmd := exec.Command("syft", args...)
+	cmd := exec.Command(syftPath, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("syft failed: %w", err)
