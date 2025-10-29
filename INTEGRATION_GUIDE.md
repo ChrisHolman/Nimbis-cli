@@ -1,6 +1,6 @@
 # Quick Setup Steps for Nimbis AI Explain
 
-## 1. Replace Files
+## 1. Replace Files:
 
 ```bash
 cd ~/nimbis
