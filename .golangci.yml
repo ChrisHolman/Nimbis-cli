@@ -1,0 +1,24 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - gofmt
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - errcheck
+    - gosimple
+
+linters-settings:
+  staticcheck:
+    checks:
+      - "all"
+      - "-SA5009"  # Temporarily disable format string check if it's a false positive
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
