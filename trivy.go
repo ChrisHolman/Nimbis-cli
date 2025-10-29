@@ -36,11 +36,12 @@ func (t *TrivyIaCScanner) Name() string {
 }
 
 func (t *TrivyIaCScanner) IsAvailable() bool {
-	_, err := exec.LookPath("trivy")
-	return err == nil
+	return isBinaryAvailable("trivy")
 }
 
 func (t *TrivyIaCScanner) Scan(config *ScanConfig) ([]Finding, error) {
+	trivyPath := getBinaryPath("trivy")
+	
 	args := []string{
 		"config",
 		"--format", "json",
@@ -49,7 +50,7 @@ func (t *TrivyIaCScanner) Scan(config *ScanConfig) ([]Finding, error) {
 		config.TargetPath,
 	}
 
-	cmd := exec.Command("trivy", args...)
+	cmd := exec.Command(trivyPath, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Trivy returns non-zero exit code when findings are present
@@ -108,11 +109,12 @@ func (t *TrivySecretScanner) Name() string {
 }
 
 func (t *TrivySecretScanner) IsAvailable() bool {
-	_, err := exec.LookPath("trivy")
-	return err == nil
+	return isBinaryAvailable("trivy")
 }
 
 func (t *TrivySecretScanner) Scan(config *ScanConfig) ([]Finding, error) {
+	trivyPath := getBinaryPath("trivy")
+	
 	args := []string{
 		"fs",
 		"--scanners", "secret",
@@ -121,7 +123,7 @@ func (t *TrivySecretScanner) Scan(config *ScanConfig) ([]Finding, error) {
 		config.TargetPath,
 	}
 
-	cmd := exec.Command("trivy", args...)
+	cmd := exec.Command(trivyPath, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if len(output) == 0 {
@@ -172,11 +174,12 @@ func (t *TrivyVulnScanner) Name() string {
 }
 
 func (t *TrivyVulnScanner) IsAvailable() bool {
-	_, err := exec.LookPath("trivy")
-	return err == nil
+	return isBinaryAvailable("trivy")
 }
 
 func (t *TrivyVulnScanner) Scan(config *ScanConfig) ([]Finding, error) {
+	trivyPath := getBinaryPath("trivy")
+	
 	args := []string{
 		"fs",
 		"--scanners", "vuln",
@@ -186,7 +189,7 @@ func (t *TrivyVulnScanner) Scan(config *ScanConfig) ([]Finding, error) {
 		config.TargetPath,
 	}
 
-	cmd := exec.Command("trivy", args...)
+	cmd := exec.Command(trivyPath, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if len(output) == 0 {

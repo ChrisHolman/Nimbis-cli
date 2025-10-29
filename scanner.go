@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -118,16 +119,27 @@ func (s *Scanner) checkScannerAvailability() {
 	}
 	
 	availableScanners := []string{}
+	unavailableScanners := []string{}
 	
 	for name, scanner := range s.scanners {
 		if scanner.IsAvailable() {
 			availableScanners = append(availableScanners, name)
-			if s.config.Verbose && !s.config.Quiet {
-				PrintScanProgress(scanner.Name(), "completed", 0)
+			if !s.config.Quiet {
+				// Show green checkmark for available scanners
+				fmt.Printf("  %s✓%s %s%s%s [%s]\n", 
+					BrightGreen, Reset, 
+					Bold, scanner.Name(), Reset,
+					getScannerType(name))
 			}
 		} else {
+			unavailableScanners = append(unavailableScanners, scanner.Name())
 			if !s.config.Quiet {
-				PrintScanProgress(scanner.Name(), "skipped", 0)
+				// Show red X for unavailable scanners
+				fmt.Printf("  %s✗%s %s%s%s [%s] - %sNOT INSTALLED%s\n", 
+					BrightRed, Reset,
+					Dim, scanner.Name(), Reset,
+					getScannerType(name),
+					BrightRed, Reset)
 			}
 			delete(s.scanners, name)
 		}
@@ -137,24 +149,89 @@ func (s *Scanner) checkScannerAvailability() {
 	
 	if !s.config.Quiet {
 		PrintSectionFooter()
-		fmt.Printf("\n%s%d%s scanners ready\n", BrightGreen, len(availableScanners), Reset)
+		
+		// Summary with color coding
+		if len(availableScanners) > 0 {
+			fmt.Printf("\n%s✓ %d scanners ready%s", BrightGreen, len(availableScanners), Reset)
+		}
+		if len(unavailableScanners) > 0 {
+			fmt.Printf("  %s✗ %d scanners missing%s", BrightRed, len(unavailableScanners), Reset)
+		}
+		fmt.Println("\n")
 	}
 	
 	if len(availableScanners) == 0 {
-		// Offer to auto-install
-		PrintError("No scanners available")
+		// Make it VERY obvious that no scanners are available
+		fmt.Printf("\n%s╔════════════════════════════════════════════════════════════╗%s\n", BrightRed, Reset)
+		fmt.Printf("%s║  ⚠️  NO SECURITY SCANNERS DETECTED  ⚠️                    ║%s\n", BrightRed, Reset)
+		fmt.Printf("%s╚════════════════════════════════════════════════════════════╝%s\n\n", BrightRed, Reset)
 		
+		PrintError("Nimbis requires external security scanners to work")
+		
+		// Check if this is likely the first run
 		shouldInstall := s.config.AutoInstall
+		
+		// Check if .nimbis directory exists to determine if this is truly first run
+		homeDir, _ := os.UserHomeDir()
+		nimbisDir := filepath.Join(homeDir, ".nimbis")
+		isFirstRun := true
+		if _, err := os.Stat(nimbisDir); err == nil {
+			// .nimbis exists, check if there are any scanners installed
+			scannersDir := filepath.Join(nimbisDir, "scanners")
+			if entries, err := os.ReadDir(scannersDir); err == nil && len(entries) > 0 {
+				isFirstRun = false
+			}
+		}
+		
 		if !shouldInstall {
-			fmt.Println("\nWould you like to auto-install scanners? (y/n)")
-			fmt.Print("> ")
+			if isFirstRun {
+				fmt.Println("\n🔍 It looks like you're running Nimbis for the first time!")
+				fmt.Println("   Nimbis orchestrates multiple security scanners:")
+			} else {
+				fmt.Println("\n⚠️  The requested scan type requires scanners that aren't installed.")
+			}
+			fmt.Println()
+			fmt.Printf("%s📦 Missing Scanners:%s\n", Bold, Reset)
+			for _, scannerName := range unavailableScanners {
+				fmt.Printf("   %s✗%s %s\n", BrightRed, Reset, scannerName)
+			}
+			fmt.Println()
+			fmt.Printf("%s💡 Available Options:%s\n", Bold, Reset)
+			fmt.Println("   1. Auto-install (recommended): nimbis --auto-install")
+			fmt.Println("   2. Manual installation:")
+			fmt.Println("      • Trivy:       https://aquasecurity.github.io/trivy/")
+			fmt.Println("      • Grype:       https://github.com/anchore/grype")
+			fmt.Println("      • Syft:        https://github.com/anchore/syft")
+			fmt.Println("      • TruffleHog:  https://github.com/trufflesecurity/trufflehog")
+			fmt.Println("      • Checkov:     pip3 install checkov")
+			if !isFirstRun {
+				fmt.Println()
+				fmt.Printf("   %s3. Use a different scan type that has installed scanners:%s\n", Bold, Reset)
+				fmt.Println("      • --iac      (IaC misconfigurations)")
+				fmt.Println("      • --secrets  (Secret detection)")
+				fmt.Println("      • --sca      (Dependency vulnerabilities)")
+				fmt.Println("      • --all      (All available scanners)")
+			}
+			fmt.Println()
+			fmt.Printf("%sWould you like to auto-install the missing scanners now?%s [Y/n] > ", Bold, Reset)
 			
 			var response string
 			fmt.Scanln(&response)
-			shouldInstall = strings.ToLower(strings.TrimSpace(response)) == "y"
+			response = strings.ToLower(strings.TrimSpace(response))
+			
+			// Default to yes if empty or 'y'
+			shouldInstall = response == "" || response == "y" || response == "yes"
+			
+			if !shouldInstall {
+				fmt.Println("\n📝 To install scanners later, run:")
+				fmt.Println("   nimbis --auto-install")
+				fmt.Println()
+				os.Exit(1)
+			}
 		}
 		
 		if shouldInstall {
+			fmt.Println()
 			installer, err := NewScannerInstaller()
 			if err != nil {
 				fmt.Printf("Failed to create installer: %v\n", err)
@@ -170,6 +247,7 @@ func (s *Scanner) checkScannerAvailability() {
 			
 			// Re-check availability after installation
 			fmt.Println("🔧 Re-checking scanner availability...")
+			fmt.Println()
 			s.scanners = make(map[string]ScannerInterface)
 			
 			if s.config.ScanTypes.IaC {
@@ -196,39 +274,57 @@ func (s *Scanner) checkScannerAvailability() {
 			}
 			
 			availableScanners = []string{}
+			newlyAvailable := []string{}
+			stillMissing := []string{}
+			
 			for name, scanner := range s.scanners {
 				if scanner.IsAvailable() {
 					availableScanners = append(availableScanners, name)
-					fmt.Printf("  ✓ %s\n", scanner.Name())
+					newlyAvailable = append(newlyAvailable, scanner.Name())
+					fmt.Printf("  %s✓%s %s\n", BrightGreen, Reset, scanner.Name())
 				} else {
+					stillMissing = append(stillMissing, scanner.Name())
+					fmt.Printf("  %s✗%s %s - %sstill not available%s\n", 
+						BrightRed, Reset, scanner.Name(), Dim, Reset)
 					delete(s.scanners, name)
 				}
 			}
 			
 			if len(availableScanners) == 0 {
-				fmt.Println("\n❌ Installation completed but scanners still not available.")
-				fmt.Println("\n💡 Manual installation instructions:")
-				fmt.Println("  • Trivy: https://aquasecurity.github.io/trivy/latest/getting-started/installation/")
-				fmt.Println("  • TruffleHog: https://github.com/trufflesecurity/trufflehog")
-				fmt.Println("  • Checkov: pip3 install checkov")
-				fmt.Println("  • Grype: https://github.com/anchore/grype")
-				fmt.Println("  • Syft: https://github.com/anchore/syft")
-				fmt.Println("  • OpenGrep: npm install -g @opengrep/cli")
+				fmt.Printf("\n%s╔════════════════════════════════════════════════════════════╗%s\n", BrightRed, Reset)
+				fmt.Printf("%s║  ❌ NO SCANNERS AVAILABLE FOR THIS SCAN TYPE ❌           ║%s\n", BrightRed, Reset)
+				fmt.Printf("%s╚════════════════════════════════════════════════════════════╝%s\n\n", BrightRed, Reset)
+				
+				fmt.Println("The requested scanners could not be automatically installed.")
+				fmt.Println()
+				fmt.Printf("%s💡 Next Steps:%s\n", Bold, Reset)
+				fmt.Println("   1. Install the missing scanners manually (see instructions above)")
+				fmt.Println("   2. Restart your terminal after installation")
+				fmt.Println("   3. Run nimbis again")
+				fmt.Println()
+				fmt.Printf("%sStill missing:%s\n", Bold, Reset)
+				for _, name := range stillMissing {
+					fmt.Printf("   %s✗%s %s\n", BrightRed, Reset, name)
+				}
 				os.Exit(1)
 			}
 			
 			s.results.Metadata.Scanners = availableScanners
-			fmt.Printf("\n✅ Ready to scan with %d scanner(s)\n\n", len(availableScanners))
+			fmt.Printf("\n%s╔════════════════════════════════════════════════════════════╗%s\n", BrightGreen, Reset)
+			fmt.Printf("%s║  ✅ READY TO SCAN WITH %d SCANNER(S) ✅                    ║%s\n", BrightGreen, len(availableScanners), Reset)
+			fmt.Printf("%s╚════════════════════════════════════════════════════════════╝%s\n\n", BrightGreen, Reset)
+			
+			if len(stillMissing) > 0 {
+				fmt.Printf("%s⚠️  Note: Some scanners are still unavailable:%s\n", Yellow, Reset)
+				for _, name := range stillMissing {
+					fmt.Printf("   • %s\n", name)
+				}
+				fmt.Println()
+			}
+			
 			return
 		}
 		
-		fmt.Println("\nManual installation instructions:")
-		fmt.Println("  • Trivy: https://aquasecurity.github.io/trivy/latest/getting-started/installation/")
-		fmt.Println("  • TruffleHog: https://github.com/trufflesecurity/trufflehog")
-		fmt.Println("  • Checkov: pip3 install checkov")
-		fmt.Println("  • Grype: https://github.com/anchore/grype")
-		fmt.Println("  • Syft: https://github.com/anchore/syft")
-		fmt.Println("  • OpenGrep: npm install -g @opengrep/cli")
 		os.Exit(1)
 	}
 }
@@ -322,7 +418,7 @@ func (s *Scanner) runParallel() {
 			if statusMsg != "" && s.config.Verbose {
 				fmt.Printf("  \033[2K\r  %s✓%s %s [%s] %s(%s findings)%s\n", 
 					BrightGreen, Reset, result.scanner.Name(), 
-					getScannerTypeFromName(result.scanner.Name()),
+					getScannerType(result.scanner.Name()),
 					Dim, statusMsg, Reset)
 			} else {
 				PrintScanProgress(result.scanner.Name(), "completed", displayCount)
@@ -378,7 +474,7 @@ func (s *Scanner) runSequential() {
 			if s.config.Verbose && len(filteredFindings) < totalCount {
 				fmt.Printf("  \033[2K\r  %s✓%s %s [%s] %s(%d of %d findings)%s\n",
 					BrightGreen, Reset, scanner.Name(),
-					getScannerTypeFromName(scanner.Name()),
+					getScannerType(scanner.Name()),
 					Dim, len(filteredFindings), totalCount, Reset)
 			} else {
 				PrintScanProgress(scanner.Name(), "completed", displayCount)
