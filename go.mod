@@ -1,4 +1,4 @@
-module github.com/yourusername/nimbis
+module github.com/ChrisHolman/Nimbis-cli
 
 go 1.21
 
