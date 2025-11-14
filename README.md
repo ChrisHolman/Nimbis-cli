@@ -1,351 +1,192 @@
-# 🛡️ Nimbis
+# Nimbis
 
-**Nimble Security at Scale** - A comprehensive, AI-powered security scanning CLI tool for code, containers, Dockerfiles, and infrastructure.
+**Nimble Security at Scale** - A comprehensive security scanning CLI tool for code, containers, and infrastructure.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.md)
 [![Go Version](https://img.shields.io/badge/Go-1.21%2B-00ADD8?logo=go)](https://go.dev/)
 
-## 🌟 Features
+## Features
 
-- **🖥️ Interactive Console** - Metasploit-style interactive mode with guided prompts (no CLI knowledge required!)
-- **🔍 Multi-Scanner Orchestration** - Integrates 7+ open-source security scanners
-- **🐳 Container Security** - Scan Docker images and Dockerfiles for vulnerabilities and misconfigurations
-- **🤖 AI-Powered Explanations** - Get plain-language security analysis from Claude, GPT, or local Ollama
-- **⚡ Fast Parallel Scanning** - Run multiple scanners simultaneously for speed
-- **📊 Multiple Output Formats** - JSON, SARIF, HTML, and table formats
-- **🎯 Smart Filtering** - Filter by severity (LOW, MEDIUM, HIGH, CRITICAL)
-- **🔧 Auto-Install** - Automatically download and install missing scanners
-- **🚀 Cross-Platform** - Works on Linux, macOS, and Windows
-- **🤖 CLI & Interactive Modes** - Use interactive console for ease or CLI flags for automation
+- **Interactive Console** - Metasploit-style interface with guided prompts (no CLI knowledge required)
+- **Multi-Scanner Orchestration** - Integrates 7+ open-source security scanners
+- **Container Security** - Scan Docker images and Dockerfiles for vulnerabilities
+- **AI-Powered Explanations** - Get plain-language security analysis from Claude, GPT, or Ollama
+- **Fast Parallel Scanning** - Run multiple scanners simultaneously
+- **Multiple Output Formats** - JSON, SARIF, HTML, and table
+- **Smart Filtering** - Filter by severity (LOW, MEDIUM, HIGH, CRITICAL)
+- **Dual-Mode Operation** - Interactive console or CLI automation
 
-## 🎭 What Nimbis Scans
+## Scan Coverage
 
-| Scan Type | Description | Scanners Used |
-|-----------|-------------|---------------|
-| **IaC** | Infrastructure as Code misconfigurations | Trivy, Checkov |
-| **Secrets** | Hardcoded credentials and API keys | TruffleHog, Trivy |
-| **SAST** | Static application security testing | OpenGrep |
-| **SCA** | Vulnerable dependencies | Trivy, Grype |
-| **Container** | Container images and Dockerfile vulnerabilities | Trivy |
-| **SBOM** | Software Bill of Materials generation | Syft |
+| Type | Description | Scanners |
+|------|-------------|----------|
+| IaC | Infrastructure as Code misconfigurations | Trivy, Checkov |
+| Secrets | Hardcoded credentials and API keys | TruffleHog, Trivy |
+| SAST | Static application security testing | OpenGrep |
+| SCA | Vulnerable dependencies | Trivy, Grype |
+| Container | Container images and Dockerfiles | Trivy |
+| SBOM | Software Bill of Materials | Syft |
 
-## 🚀 Quick Start
+## Installation
 
-### Installation
-
-#### From Source
+### From Source
 ```bash
-git clone https://github.com/yourusername/nimbis.git
-cd nimbis
+git clone https://github.com/ChrisHolman/Nimbis-cli.git
+cd Nimbis-cli
 go build -o nimbis .
 ```
 
-#### Download Binary
+### Download Binary
 ```bash
-# Linux
-curl -L https://github.com/yourusername/nimbis/releases/latest/download/nimbis-linux-amd64 -o nimbis
+# Linux (x64)
+curl -L https://github.com/ChrisHolman/Nimbis-cli/releases/latest/download/nimbis-linux-amd64 -o nimbis
 chmod +x nimbis
 
-# macOS
-curl -L https://github.com/yourusername/nimbis/releases/latest/download/nimbis-darwin-amd64 -o nimbis
+# macOS (Intel)
+curl -L https://github.com/ChrisHolman/Nimbis-cli/releases/latest/download/nimbis-darwin-amd64 -o nimbis
 chmod +x nimbis
 
-# Windows
-# Download from releases page
+# macOS (Apple Silicon)
+curl -L https://github.com/ChrisHolman/Nimbis-cli/releases/latest/download/nimbis-darwin-arm64 -o nimbis
+chmod +x nimbis
 ```
 
-### Usage Modes
+## Quick Start
 
-Nimbis supports two modes: **Interactive Console** (like Metasploit) and **CLI Mode** (for automation).
+### Interactive Mode (Easiest)
 
-#### Interactive Console Mode (Default)
-
-Simply run `nimbis` without any arguments to enter the interactive console:
+Run without arguments for the guided console interface:
 
 ```bash
 ./nimbis
 ```
 
-This launches a Metasploit-style interface where you can:
-- Use `scan` or `s` to start an interactive scan
-- Follow guided prompts to configure your scan
-- Use `help` or `?` to see available commands
-- Use `exit` or `q` to quit
+Available commands:
+- `scan` - Start a security scan with guided prompts
+- `help` - Show available commands
+- `exit` - Quit
 
-**Interactive Workflow:**
-1. Choose target (directory, container image, Dockerfile)
-2. Select scan types from menu
-3. Set severity level
-4. Optionally save results to file
-5. Confirm and run scan
-
-**Example Session:**
+Example workflow:
 ```
 nimbis> scan
-
-STEP 1: TARGET SELECTION
-Enter target path or image: nginx:latest
-
-STEP 2: SCAN TYPE SELECTION
-1) All Scans
-2) IaC
-3) Secrets
-4) SAST
-5) SCA
-6) Container
-7) SBOM
-8) Custom
-Select scan type [1-8]: 6
-
-STEP 3: SEVERITY LEVEL
-Select severity level [1-4]: 3
-
-STEP 4: OUTPUT OPTIONS
-Save results to file? (Enter filename or press Enter to skip):
-
-SCAN CONFIGURATION
-Target:         nginx:latest
-Scan Types:     Container
-Min Severity:   HIGH
-
-Proceed with scan? (Y/n): y
-
-[*] Initiating scan...
-[Scan runs...]
-[*] Scan complete!
+Enter target: nginx:latest
+Select scan type: 6 (Container)
+Select severity: 3 (HIGH)
+Proceed? y
 ```
 
-#### CLI Mode (For Automation)
+### CLI Mode (Automation)
 
-Run nimbis with flags for automated scanning in CI/CD pipelines:
+Use flags for automated scanning in CI/CD:
 
 ```bash
-# Scan current directory with all scanners
+# Scan everything
 ./nimbis --all
 
-# Scan specific directory for HIGH+ severity issues
-./nimbis --severity HIGH --target /path/to/project
+# Scan specific types
+./nimbis --container --target nginx:latest --severity HIGH
+./nimbis --sca --iac --target /path/to/project
 
-# Generate HTML report
+# Generate reports
 ./nimbis --all --format html --output report.html
-
-# Run with verbose output
-./nimbis --all --verbose
+./nimbis --secrets --format json --output results.json
 ```
 
-## 🤖 AI-Powered Explanations
+## Usage Examples
 
-Get intelligent, actionable security analysis using AI:
-
-### Setup AI Provider
-
-Choose one option:
-
+### Container Scanning
 ```bash
-# Option 1: Anthropic Claude (Recommended)
-export ANTHROPIC_API_KEY="sk-ant-your-key-here"
-
-# Option 2: OpenAI GPT
-export OPENAI_API_KEY="sk-your-key-here"
-
-# Option 3: Local Ollama (Free, no API key needed)
-ollama pull llama2
-```
-
-### Use Explain Command
-
-```bash
-# Scan and explain all findings
-./nimbis explain
-
-# Scan for HIGH+ severity and explain top 20
-./nimbis --severity HIGH explain --max 20
-
-# Scan for CRITICAL issues and explain all
-./nimbis --severity CRITICAL explain --max 100
-```
-
-### Example Output
-
-```
-🤖 Nimbis AI Explanation
-
-🔧 Configuring AI provider...
-  ✓ Using Anthropic Claude (claude-sonnet-4-20250514)
-
-📊 Explaining all 24 findings
-
-💭 Analyzing findings with AI...
-
-╔══════════════════════════════════════════════════════════╗
-║        🤖 AI SECURITY ANALYSIS                           ║
-╚══════════════════════════════════════════════════════════╝
-
-📊 SUMMARY
-─────────────────────────────────────────────────────────
-Your system has critical vulnerabilities requiring immediate
-attention. The primary issues are an outdated Go runtime with 23
-known CVEs and containers running as root user...
-
-💡 KEY RECOMMENDATIONS
-─────────────────────────────────────────────────────────
-1. Upgrade Go to version 1.21.12 or later immediately
-
-2. Add non-root user to your Dockerfile
-
-3. Implement health checks in containers
-```
-
-## 📖 Usage Guide
-
-### Scan Types
-
-```bash
-# Scan everything (default)
-./nimbis --all
-
-# Specific scan types
-./nimbis --iac           # Infrastructure as Code only
-./nimbis --secrets       # Secrets only
-./nimbis --sast          # Static analysis only
-./nimbis --sca           # Dependency vulnerabilities only
-./nimbis --container     # Container images and Dockerfiles only
-./nimbis --sbom          # Generate SBOM only
-
-# Combine scan types
-./nimbis --iac --secrets --sca
-
-# Scan a specific container image
+# Scan a Docker image
 ./nimbis --container --target nginx:latest
 
 # Scan a Dockerfile
 ./nimbis --container --target Dockerfile
 
-# Scan directory for Dockerfiles
-./nimbis --container --target /path/to/project
+# Scan with severity filter
+./nimbis --container --target myapp:v1.0 --severity CRITICAL
+```
+
+### Code Scanning
+```bash
+# Scan for secrets and IaC issues
+./nimbis --secrets --iac --target /path/to/project
+
+# Full scan with high severity only
+./nimbis --all --severity HIGH
+
+# Generate HTML report
+./nimbis --sca --sast --format html --output security-report.html
 ```
 
 ### Severity Filtering
-
 ```bash
-# Show only HIGH and CRITICAL issues
+# Show only HIGH and CRITICAL
 ./nimbis --severity HIGH
 
-# Show only CRITICAL issues
-./nimbis --severity CRITICAL
-
-# Fail build on HIGH or above
-./nimbis --severity LOW --fail-on HIGH
+# Fail build on CRITICAL issues
+./nimbis --all --fail-on CRITICAL
 ```
 
-### Output Formats
+## AI-Powered Explanations
 
+Get intelligent security analysis using AI:
+
+### Setup
 ```bash
-# JSON (default)
-./nimbis --format json --output results.json
+# Option 1: Anthropic Claude
+export ANTHROPIC_API_KEY="sk-ant-your-key"
 
-# SARIF (for GitHub Code Scanning)
-./nimbis --format sarif --output results.sarif
+# Option 2: OpenAI GPT
+export OPENAI_API_KEY="sk-your-key"
 
-# HTML Report
-./nimbis --format html --output report.html
-
-# Table (human-readable)
-./nimbis --format table
+# Option 3: Local Ollama (free)
+ollama pull llama2
 ```
 
-### Advanced Options
-
+### Usage
 ```bash
-# Quiet mode (minimal output, saves to file)
-./nimbis --quiet
+# Scan and explain findings
+./nimbis explain
 
-# Run scanners sequentially (easier debugging)
-./nimbis --parallel=false --verbose
-
-# Auto-install missing scanners
-./nimbis --auto-install
-
-# Target specific directory
-./nimbis --target /path/to/scan
+# Explain high severity issues
+./nimbis --severity HIGH explain --max 20
 ```
 
-### Container Scanning
+## Scanner Installation
 
-```bash
-# Scan a local Docker image
-./nimbis --container --target nginx:latest
+Nimbis requires external scanners. Install automatically or manually:
 
-# Scan a remote image from a registry
-./nimbis --container --target docker.io/library/alpine:3.18
-
-# Scan an image by digest
-./nimbis --container --target nginx@sha256:abc123...
-
-# Scan Dockerfile in current directory
-./nimbis --container --target Dockerfile
-
-# Scan specific Dockerfile
-./nimbis --container --target /path/to/Dockerfile.prod
-
-# Scan directory for all Dockerfiles
-./nimbis --container --target /path/to/project
-
-# Scan container with high severity filter
-./nimbis --container --severity HIGH --target nginx:latest
-
-# Generate HTML report for container scan
-./nimbis --container --format html --output container-report.html --target myapp:v1.0
-
-# Scan container and get AI explanation
-./nimbis --container --target myapp:latest explain
-```
-
-## 🔧 Scanner Installation
-
-Nimbis requires external scanners to be installed. You can install them manually or use `--auto-install`:
-
-### Automatic Installation
-
+### Automatic
 ```bash
 ./nimbis --auto-install
 ```
 
-### Manual Installation
-
-#### Linux/macOS
-
+### Manual
 ```bash
-# Trivy (IaC, Secrets, SCA)
-curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+# Trivy
+curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
 
-# TruffleHog (Secrets)
-curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sudo sh -s -- -b /usr/local/bin
+# TruffleHog
+curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /usr/local/bin
 
-# Grype (SCA)
-curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sudo sh -s -- -b /usr/local/bin
+# Grype
+curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
 
-# Syft (SBOM)
-curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sudo sh -s -- -b /usr/local/bin
+# Syft
+curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
 
-# Checkov (IaC)
+# Checkov
 pip3 install checkov
 
-# OpenGrep (SAST)
+# OpenGrep
 npm install -g @opengrep/cli
 ```
 
-#### Windows
-
-Download binaries from the respective project release pages and add to PATH.
-
-## 🔄 CI/CD Integration
+## CI/CD Integration
 
 ### GitHub Actions
-
 ```yaml
 name: Security Scan
-
 on: [push, pull_request]
 
 jobs:
@@ -353,110 +194,44 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Install Nimbis
         run: |
-          curl -L https://github.com/yourusername/nimbis/releases/latest/download/nimbis-linux-amd64 -o nimbis
+          curl -L https://github.com/ChrisHolman/Nimbis-cli/releases/latest/download/nimbis-linux-amd64 -o nimbis
           chmod +x nimbis
-      
-      - name: Run Security Scan
-        run: ./nimbis --fail-on HIGH --format json --output results.json
-      
-      - name: AI Explanation
-        if: failure()
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: ./nimbis explain --max 20
-      
+
+      - name: Run Scan
+        run: ./nimbis --all --severity HIGH --format json --output results.json
+
       - name: Upload Results
         uses: actions/upload-artifact@v3
         with:
           name: security-results
-          path: |
-            results.json
-            nimbis-results-explanation.txt
+          path: results.json
 ```
 
 ### GitLab CI
-
 ```yaml
 security_scan:
   stage: test
   image: alpine:latest
   before_script:
     - apk add --no-cache curl
-    - curl -L https://github.com/yourusername/nimbis/releases/latest/download/nimbis-linux-amd64 -o nimbis
+    - curl -L https://github.com/ChrisHolman/Nimbis-cli/releases/latest/download/nimbis-linux-amd64 -o nimbis
     - chmod +x nimbis
   script:
-    - ./nimbis --fail-on HIGH --format json --output results.json
+    - ./nimbis --all --severity HIGH --format json --output results.json
   artifacts:
     paths:
       - results.json
     expire_in: 1 week
 ```
 
-## 📊 Example Workflows
-
-### Pre-Commit Hook
-
-```bash
-#!/bin/bash
-# .git/hooks/pre-commit
-
-echo "Running security scan..."
-./nimbis --severity HIGH --quiet
-
-if [ $? -ne 0 ]; then
-    echo "❌ Security issues found! Run './nimbis explain' for details."
-    exit 1
-fi
-
-echo "✅ Security scan passed!"
-```
-
-### Weekly Security Audit
-
-```bash
-#!/bin/bash
-# weekly-audit.sh
-
-# Run comprehensive scan
-./nimbis --all --format html --output "security-report-$(date +%Y%m%d).html"
-
-# Generate AI explanation
-export ANTHROPIC_API_KEY="your-key"
-./nimbis explain --max 50 > "explanation-$(date +%Y%m%d).txt"
-
-# Email results (example)
-mail -s "Weekly Security Report" team@company.com < "explanation-$(date +%Y%m%d).txt"
-```
-
-## 🎯 Best Practices
-
-1. **Start Broad, Then Focus**
-   - Initial scan: `./nimbis --severity LOW`
-   - Production: `./nimbis --severity HIGH --fail-on CRITICAL`
-
-2. **Use AI Explanations for Learning**
-   - `./nimbis explain` helps understand and prioritize fixes
-
-3. **Integrate Early**
-   - Add to CI/CD from day one
-   - Run on every pull request
-
-4. **Regular Updates**
-   - Keep Nimbis and scanners up to date
-   - Review new vulnerabilities weekly
-
-5. **Archive Results**
-   - Save scan results for compliance and trend analysis
-
-## 🛠️ Configuration
+## Configuration
 
 ### Environment Variables
-
 ```bash
-# AI Provider Configuration
+# AI Provider
 export ANTHROPIC_API_KEY="sk-ant-..."
 export ANTHROPIC_MODEL="claude-sonnet-4-20250514"
 
@@ -471,47 +246,12 @@ export TRIVY_PATH="/usr/local/bin/trivy"
 export GRYPE_PATH="/usr/local/bin/grype"
 ```
 
-## 📈 Output Examples
-
-### Console Output
-
-```
-███    ██ ██ ███    ███ ██████  ██ ███████ 
-████   ██ ██ ████  ████ ██   ██ ██ ██      
-██ ██  ██ ██ ██ ████ ██ ██████  ██ ███████ 
-██  ██ ██ ██ ██  ██  ██ ██   ██ ██      ██ 
-██   ████ ██ ██      ██ ██████  ██ ███████ 
-
-                v0.1.0
-    IaC • Secrets • SAST • SCA • SBOM
-
-╔════════════════════════════════════════════════════════╗
-║  SCAN SUMMARY                                          ║
-╠════════════════════════════════════════════════════════╣
-║  Total Findings:           24                          ║
-║  Scan Duration:            29.4s                       ║
-║  Scanners Used:            7                           ║
-╚════════════════════════════════════════════════════════╝
-
-Severity Breakdown:
-  CRITICAL 7
-  HIGH 17
-
-Findings by Type:
-  • SCA: 23
-  • IaC: 1
-```
-
-## 🤝 Contributing
-
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-### Development Setup
+## Development
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/nimbis.git
-cd nimbis
+git clone https://github.com/ChrisHolman/Nimbis-cli.git
+cd Nimbis-cli
 
 # Install dependencies
 go mod download
@@ -526,14 +266,17 @@ go test ./...
 ./nimbis --all --verbose
 ```
 
-## 📝 License
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## License
 
 This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
-Nimbis builds upon these excellent open-source tools:
-
+Built with these open-source tools:
 - [Trivy](https://github.com/aquasecurity/trivy) - Container & dependency scanner
 - [TruffleHog](https://github.com/trufflesecurity/trufflehog) - Secret scanner
 - [Grype](https://github.com/anchore/grype) - Vulnerability scanner
@@ -541,31 +284,7 @@ Nimbis builds upon these excellent open-source tools:
 - [Checkov](https://github.com/bridgecrewio/checkov) - IaC scanner
 - [OpenGrep](https://github.com/semgrep/semgrep) - SAST tool
 
-## 🐛 Issues & Support
+## Support
 
-- **Bug Reports**: [GitHub Issues](https://github.com/yourusername/nimbis/issues)
-- **Feature Requests**: [GitHub Discussions](https://github.com/yourusername/nimbis/discussions)
-- **Security Issues**: Please email security@yourdomain.com
-
-## 🗺️ Roadmap
-
-- [x] Container image and Dockerfile scanning
-- [ ] Interactive explanation mode (Q&A with AI)
-- [ ] Custom rule definitions
-- [ ] VS Code extension
-- [ ] Dashboard web UI
-- [ ] Trend analysis across scans
-- [ ] Integration with issue trackers (Jira, GitHub Issues)
-- [ ] Multi-language explanations
-- [ ] Baseline and differential scanning
-- [ ] Kubernetes manifest scanning
-
-## ⭐ Star History
-
-If you find Nimbis useful, please consider giving it a star!
-
----
-
-**Made with ❤️ for the security community**
-
-*Nimbis - Nimble Security at Scale*
+- Bug Reports: [GitHub Issues](https://github.com/ChrisHolman/Nimbis-cli/issues)
+- Documentation: [GitHub Wiki](https://github.com/ChrisHolman/Nimbis-cli/wiki)
