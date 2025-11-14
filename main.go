@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	version = "0.1.0"
+	version = "2.0.0"
 	
 	// Global flags
 	targetPath     string
@@ -65,6 +65,16 @@ to identify IaC misconfigurations, secrets, SAST issues, SCA vulnerabilities, an
 
 	// Add explain command from command_explain.go
 	rootCmd.AddCommand(explainCmd)
+
+	// Check if running in interactive mode (no arguments provided)
+	if len(os.Args) == 1 {
+		// No arguments - run interactive mode
+		if err := RunInteractiveMode(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

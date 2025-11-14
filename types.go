@@ -30,13 +30,14 @@ type ScanTypes struct {
 
 // ScanResult represents the aggregated results from all scanners
 type ScanResult struct {
-	Summary       Summary                  `json:"summary"`
-	IaCResults    []Finding                `json:"iac_results,omitempty"`
-	SecretResults []Finding                `json:"secret_results,omitempty"`
-	SASTResults   []Finding                `json:"sast_results,omitempty"`
-	SCAResults    []Finding                `json:"sca_results,omitempty"`
-	SBOM          *SBOMData                `json:"sbom,omitempty"`
-	Metadata      Metadata                 `json:"metadata"`
+	Summary          Summary                  `json:"summary"`
+	IaCResults       []Finding                `json:"iac_results,omitempty"`
+	SecretResults    []Finding                `json:"secret_results,omitempty"`
+	SASTResults      []Finding                `json:"sast_results,omitempty"`
+	SCAResults       []Finding                `json:"sca_results,omitempty"`
+	ContainerResults []Finding                `json:"container_results,omitempty"`
+	SBOM             *SBOMData                `json:"sbom,omitempty"`
+	Metadata         Metadata                 `json:"metadata"`
 }
 
 // Summary provides high-level statistics
@@ -102,10 +103,11 @@ const (
 
 // ScanType enum
 const (
-	ScanTypeIaC     = "IaC"
-	ScanTypeSecret  = "Secret"
-	ScanTypeSAST    = "SAST"
-	ScanTypeSCA     = "SCA"
+	ScanTypeIaC       = "IaC"
+	ScanTypeSecret    = "Secret"
+	ScanTypeSAST      = "SAST"
+	ScanTypeSCA       = "SCA"
+	ScanTypeContainer = "Container"
 )
 
 // Scanner interface that all scanner implementations must fulfill

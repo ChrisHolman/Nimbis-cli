@@ -311,3 +311,177 @@ type TrivyVulnerability struct {
 type TrivyCVSS struct {
 	V3Score float64 `json:"V3Score"`
 }
+
+// TrivyContainerScanner implements container image and Dockerfile scanning using Trivy
+type TrivyContainerScanner struct{}
+
+func NewTrivyContainerScanner() *TrivyContainerScanner {
+	return &TrivyContainerScanner{}
+}
+
+func (t *TrivyContainerScanner) Name() string {
+	return "Trivy Container Scanner"
+}
+
+func (t *TrivyContainerScanner) IsAvailable() bool {
+	_, err := exec.LookPath("trivy")
+	return err == nil
+}
+
+func (t *TrivyContainerScanner) Scan(config *ScanConfig) ([]Finding, error) {
+	// Determine if we're scanning an image or a Dockerfile
+	var args []string
+
+	// Check if target is a Dockerfile or a directory containing one
+	if isDockerfileOrImage(config.TargetPath) {
+		// Scan container image or Dockerfile
+		args = []string{
+			"image",
+			"--format", "json",
+			"--severity", "LOW,MEDIUM,HIGH,CRITICAL",
+			"--quiet",
+			config.TargetPath,
+		}
+	} else {
+		// Scan filesystem for Dockerfiles
+		args = []string{
+			"config",
+			"--format", "json",
+			"--severity", "LOW,MEDIUM,HIGH,CRITICAL",
+			"--quiet",
+			"--file-patterns", "Dockerfile,Dockerfile.*,*.dockerfile",
+			config.TargetPath,
+		}
+	}
+
+	cmd := exec.Command("trivy", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Trivy returns non-zero exit code when findings are present
+		if len(output) == 0 {
+			return nil, fmt.Errorf("trivy container scan failed: %w", err)
+		}
+	}
+
+	return t.parseContainerResults(output)
+}
+
+func (t *TrivyContainerScanner) parseContainerResults(output []byte) ([]Finding, error) {
+	output = cleanJSONOutput(output)
+
+	// Try parsing as vulnerability results first
+	var trivyVulnResults TrivyVulnResults
+	if err := json.Unmarshal(output, &trivyVulnResults); err == nil && len(trivyVulnResults.Results) > 0 {
+		var findings []Finding
+		for _, result := range trivyVulnResults.Results {
+			for _, vuln := range result.Vulnerabilities {
+				cvss := 0.0
+				if vuln.CVSS != nil {
+					for _, v := range vuln.CVSS {
+						if v.V3Score > cvss {
+							cvss = v.V3Score
+						}
+					}
+				}
+
+				title := vuln.VulnerabilityID
+				if vuln.Title != "" {
+					title = vuln.Title
+				}
+
+				finding := Finding{
+					Type:        ScanTypeContainer,
+					Scanner:     "trivy",
+					Severity:    vuln.Severity,
+					Title:       title,
+					Description: vuln.Description,
+					File:        result.Target,
+					CVE:         vuln.VulnerabilityID,
+					CVSS:        cvss,
+					References:  vuln.References,
+					Extra: map[string]string{
+						"package":           vuln.PkgName,
+						"installed_version": vuln.InstalledVersion,
+						"fixed_version":     vuln.FixedVersion,
+					},
+				}
+				findings = append(findings, finding)
+			}
+		}
+
+		// Also check for misconfigurations in the same scan
+		var trivyConfigResults TrivyConfigResults
+		if err := json.Unmarshal(output, &trivyConfigResults); err == nil {
+			for _, result := range trivyConfigResults.Results {
+				for _, misconfig := range result.Misconfigurations {
+					file := ""
+					if misconfig.CauseMetadata.StartLine > 0 {
+						file = result.Target
+					}
+
+					finding := Finding{
+						Type:        ScanTypeContainer,
+						Scanner:     "trivy",
+						Severity:    misconfig.Severity,
+						Title:       misconfig.Title,
+						Description: misconfig.Description,
+						File:        file,
+						Line:        misconfig.CauseMetadata.StartLine,
+						RuleID:      misconfig.ID,
+						References:  misconfig.References,
+						Remediation: misconfig.Resolution,
+					}
+					findings = append(findings, finding)
+				}
+			}
+		}
+
+		return findings, nil
+	}
+
+	// Try parsing as config results (Dockerfile misconfigurations)
+	var trivyConfigResults TrivyConfigResults
+	if err := json.Unmarshal(output, &trivyConfigResults); err == nil {
+		var findings []Finding
+		for _, result := range trivyConfigResults.Results {
+			for _, misconfig := range result.Misconfigurations {
+				file := ""
+				if misconfig.CauseMetadata.StartLine > 0 {
+					file = result.Target
+				}
+
+				finding := Finding{
+					Type:        ScanTypeContainer,
+					Scanner:     "trivy",
+					Severity:    misconfig.Severity,
+					Title:       misconfig.Title,
+					Description: misconfig.Description,
+					File:        file,
+					Line:        misconfig.CauseMetadata.StartLine,
+					RuleID:      misconfig.ID,
+					References:  misconfig.References,
+					Remediation: misconfig.Resolution,
+				}
+				findings = append(findings, finding)
+			}
+		}
+		return findings, nil
+	}
+
+	return nil, fmt.Errorf("failed to parse trivy container output")
+}
+
+// isDockerfileOrImage checks if the target is a Dockerfile or container image
+func isDockerfileOrImage(target string) bool {
+	// Check if it's a container image reference (contains : or @)
+	if bytes.Contains([]byte(target), []byte(":")) || bytes.Contains([]byte(target), []byte("@")) {
+		return true
+	}
+
+	// Check if it's a Dockerfile
+	if bytes.Contains([]byte(target), []byte("Dockerfile")) || bytes.Contains([]byte(target), []byte(".dockerfile")) {
+		return true
+	}
+
+	return false
+}

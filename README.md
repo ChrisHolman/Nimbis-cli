@@ -1,19 +1,22 @@
 # 🛡️ Nimbis
 
-**Nimble Security at Scale** - A comprehensive, AI-powered security scanning CLI tool for code, containers, and infrastructure.
+**Nimble Security at Scale** - A comprehensive, AI-powered security scanning CLI tool for code, containers, Dockerfiles, and infrastructure.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.md)
 [![Go Version](https://img.shields.io/badge/Go-1.21%2B-00ADD8?logo=go)](https://go.dev/)
 
 ## 🌟 Features
 
+- **🖥️ Interactive Console** - Metasploit-style interactive mode with guided prompts (no CLI knowledge required!)
 - **🔍 Multi-Scanner Orchestration** - Integrates 7+ open-source security scanners
+- **🐳 Container Security** - Scan Docker images and Dockerfiles for vulnerabilities and misconfigurations
 - **🤖 AI-Powered Explanations** - Get plain-language security analysis from Claude, GPT, or local Ollama
 - **⚡ Fast Parallel Scanning** - Run multiple scanners simultaneously for speed
 - **📊 Multiple Output Formats** - JSON, SARIF, HTML, and table formats
 - **🎯 Smart Filtering** - Filter by severity (LOW, MEDIUM, HIGH, CRITICAL)
 - **🔧 Auto-Install** - Automatically download and install missing scanners
 - **🚀 Cross-Platform** - Works on Linux, macOS, and Windows
+- **🤖 CLI & Interactive Modes** - Use interactive console for ease or CLI flags for automation
 
 ## 🎭 What Nimbis Scans
 
@@ -23,6 +26,7 @@
 | **Secrets** | Hardcoded credentials and API keys | TruffleHog, Trivy |
 | **SAST** | Static application security testing | OpenGrep |
 | **SCA** | Vulnerable dependencies | Trivy, Grype |
+| **Container** | Container images and Dockerfile vulnerabilities | Trivy |
 | **SBOM** | Software Bill of Materials generation | Syft |
 
 ## 🚀 Quick Start
@@ -50,11 +54,74 @@ chmod +x nimbis
 # Download from releases page
 ```
 
-### Basic Usage
+### Usage Modes
+
+Nimbis supports two modes: **Interactive Console** (like Metasploit) and **CLI Mode** (for automation).
+
+#### Interactive Console Mode (Default)
+
+Simply run `nimbis` without any arguments to enter the interactive console:
+
+```bash
+./nimbis
+```
+
+This launches a Metasploit-style interface where you can:
+- Use `scan` or `s` to start an interactive scan
+- Follow guided prompts to configure your scan
+- Use `help` or `?` to see available commands
+- Use `exit` or `q` to quit
+
+**Interactive Workflow:**
+1. Choose target (directory, container image, Dockerfile)
+2. Select scan types from menu
+3. Set severity level
+4. Optionally save results to file
+5. Confirm and run scan
+
+**Example Session:**
+```
+nimbis> scan
+
+STEP 1: TARGET SELECTION
+Enter target path or image: nginx:latest
+
+STEP 2: SCAN TYPE SELECTION
+1) All Scans
+2) IaC
+3) Secrets
+4) SAST
+5) SCA
+6) Container
+7) SBOM
+8) Custom
+Select scan type [1-8]: 6
+
+STEP 3: SEVERITY LEVEL
+Select severity level [1-4]: 3
+
+STEP 4: OUTPUT OPTIONS
+Save results to file? (Enter filename or press Enter to skip):
+
+SCAN CONFIGURATION
+Target:         nginx:latest
+Scan Types:     Container
+Min Severity:   HIGH
+
+Proceed with scan? (Y/n): y
+
+[*] Initiating scan...
+[Scan runs...]
+[*] Scan complete!
+```
+
+#### CLI Mode (For Automation)
+
+Run nimbis with flags for automated scanning in CI/CD pipelines:
 
 ```bash
 # Scan current directory with all scanners
-./nimbis
+./nimbis --all
 
 # Scan specific directory for HIGH+ severity issues
 ./nimbis --severity HIGH --target /path/to/project
@@ -142,10 +209,20 @@ known CVEs and containers running as root user...
 ./nimbis --secrets       # Secrets only
 ./nimbis --sast          # Static analysis only
 ./nimbis --sca           # Dependency vulnerabilities only
+./nimbis --container     # Container images and Dockerfiles only
 ./nimbis --sbom          # Generate SBOM only
 
 # Combine scan types
 ./nimbis --iac --secrets --sca
+
+# Scan a specific container image
+./nimbis --container --target nginx:latest
+
+# Scan a Dockerfile
+./nimbis --container --target Dockerfile
+
+# Scan directory for Dockerfiles
+./nimbis --container --target /path/to/project
 ```
 
 ### Severity Filtering
@@ -191,6 +268,37 @@ known CVEs and containers running as root user...
 
 # Target specific directory
 ./nimbis --target /path/to/scan
+```
+
+### Container Scanning
+
+```bash
+# Scan a local Docker image
+./nimbis --container --target nginx:latest
+
+# Scan a remote image from a registry
+./nimbis --container --target docker.io/library/alpine:3.18
+
+# Scan an image by digest
+./nimbis --container --target nginx@sha256:abc123...
+
+# Scan Dockerfile in current directory
+./nimbis --container --target Dockerfile
+
+# Scan specific Dockerfile
+./nimbis --container --target /path/to/Dockerfile.prod
+
+# Scan directory for all Dockerfiles
+./nimbis --container --target /path/to/project
+
+# Scan container with high severity filter
+./nimbis --container --severity HIGH --target nginx:latest
+
+# Generate HTML report for container scan
+./nimbis --container --format html --output container-report.html --target myapp:v1.0
+
+# Scan container and get AI explanation
+./nimbis --container --target myapp:latest explain
 ```
 
 ## 🔧 Scanner Installation
@@ -441,7 +549,7 @@ Nimbis builds upon these excellent open-source tools:
 
 ## 🗺️ Roadmap
 
-- [ ] Container image scanning
+- [x] Container image and Dockerfile scanning
 - [ ] Interactive explanation mode (Q&A with AI)
 - [ ] Custom rule definitions
 - [ ] VS Code extension
@@ -450,6 +558,7 @@ Nimbis builds upon these excellent open-source tools:
 - [ ] Integration with issue trackers (Jira, GitHub Issues)
 - [ ] Multi-language explanations
 - [ ] Baseline and differential scanning
+- [ ] Kubernetes manifest scanning
 
 ## ⭐ Star History
 

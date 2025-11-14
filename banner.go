@@ -189,6 +189,8 @@ func getScannerTypeFromName(scannerName string) string {
 		return "Secrets"
 	case strings.Contains(nameLower, "opengrep") || strings.Contains(nameLower, "sast"):
 		return "SAST"
+	case strings.Contains(nameLower, "container"):
+		return "Container"
 	case strings.Contains(nameLower, "vuln") || strings.Contains(nameLower, "grype") || strings.Contains(nameLower, "sca"):
 		return "SCA"
 	case strings.Contains(nameLower, "syft") || strings.Contains(nameLower, "sbom"):

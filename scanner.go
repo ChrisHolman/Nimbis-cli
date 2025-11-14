@@ -54,7 +54,11 @@ func NewScanner(config *ScanConfig) *Scanner {
 		s.scanners["trivy-vuln"] = NewTrivyVulnScanner()
 		s.scanners["grype"] = NewGrypeScanner()
 	}
-	
+
+	if config.ScanTypes.Container {
+		s.scanners["trivy-container"] = NewTrivyContainerScanner()
+	}
+
 	if config.ScanTypes.SBOM {
 		s.scanners["syft"] = NewSyftScanner()
 	}
@@ -73,6 +77,8 @@ func getScannerType(scannerName string) string {
 		return "SAST"
 	case strings.Contains(scannerName, "vuln") || strings.Contains(scannerName, "Grype") || strings.Contains(scannerName, "Vulnerability"):
 		return "SCA"
+	case strings.Contains(scannerName, "container") || strings.Contains(scannerName, "Container"):
+		return "Container"
 	case strings.Contains(scannerName, "Syft") || strings.Contains(scannerName, "SBOM"):
 		return "SBOM"
 	default:
@@ -118,6 +124,7 @@ func (s *Scanner) checkScannerAvailability() {
 	}
 	
 	availableScanners := []string{}
+	missingScanners := []string{}
 	
 	for name, scanner := range s.scanners {
 		if scanner.IsAvailable() {
@@ -129,6 +136,8 @@ func (s *Scanner) checkScannerAvailability() {
 			if !s.config.Quiet {
 				PrintScanProgress(scanner.Name(), "skipped", 0)
 			}
+			// Track missing scanners for potential auto-install
+			missingScanners = append(missingScanners, name)
 			delete(s.scanners, name)
 		}
 	}
@@ -140,61 +149,103 @@ func (s *Scanner) checkScannerAvailability() {
 		fmt.Printf("\n%s%d%s scanners ready\n", BrightGreen, len(availableScanners), Reset)
 	}
 	
+
+	// If we have at least one available scanner but some missing AND auto-install is enabled, try to install missing ones.
+	if len(availableScanners) > 0 && len(missingScanners) > 0 && s.config.AutoInstall {
+		PrintInfo(fmt.Sprintf("Auto-install enabled: attempting to install %d missing scanner(s)...", len(missingScanners)))
+		installer, err := NewScannerInstaller()
+		if err == nil {
+			if err := installer.InstallAll(); err == nil {
+				installer.AddToPath()
+				// Re-check only the previously missing scanners (those we can auto-install)
+				for _, name := range missingScanners {
+					var reScanner ScannerInterface
+					switch name {
+					case "trivy-iac":
+						reScanner = NewTrivyIaCScanner()
+					case "trivy-secret":
+						reScanner = NewTrivySecretScanner()
+					case "trivy-vuln":
+						reScanner = NewTrivyVulnScanner()
+					case "trivy-container":
+						reScanner = NewTrivyContainerScanner()
+					case "trufflehog":
+						reScanner = NewTruffleHogScanner()
+					case "grype":
+						reScanner = NewGrypeScanner()
+					case "syft":
+						reScanner = NewSyftScanner()
+					// checkov & opengrep are intentionally skipped (manual install)
+					}
+					if reScanner != nil && reScanner.IsAvailable() {
+						s.scanners[name] = reScanner
+						availableScanners = append(availableScanners, name)
+						fmt.Printf("  ✓ %s installed\n", reScanner.Name())
+					}
+				}
+			} else if s.config.Verbose {
+				PrintWarning(fmt.Sprintf("Auto-install attempt failed: %v", err))
+			}
+		}
+		// Provide manual guidance for any still-missing scanners
+		remaining := []string{}
+		for _, m := range missingScanners {
+			if _, ok := s.scanners[m]; !ok { // still missing
+				remaining = append(remaining, m)
+			}
+		}
+		if len(remaining) > 0 {
+			PrintWarning(fmt.Sprintf("Some scanners still missing: %s", strings.Join(remaining, ", ")))
+			PrintInfo("Manual install guidance: Checkov (pip3 install checkov), OpenGrep (npm install -g @opengrep/cli)")
+		}
+	}
+
+	// If none available (after any attempted install), fall back to original interactive logic
 	if len(availableScanners) == 0 {
-		// Offer to auto-install
 		PrintError("No scanners available")
-		
 		shouldInstall := s.config.AutoInstall
 		if !shouldInstall {
 			fmt.Println("\nWould you like to auto-install scanners? (y/n)")
 			fmt.Print("> ")
-			
 			var response string
 			fmt.Scanln(&response)
 			shouldInstall = strings.ToLower(strings.TrimSpace(response)) == "y"
 		}
-		
 		if shouldInstall {
 			installer, err := NewScannerInstaller()
 			if err != nil {
 				fmt.Printf("Failed to create installer: %v\n", err)
 				os.Exit(1)
 			}
-			
 			if err := installer.InstallAll(); err != nil {
 				fmt.Printf("Installation failed: %v\n", err)
 				os.Exit(1)
 			}
-			
 			installer.AddToPath()
-			
-			// Re-check availability after installation
 			fmt.Println("🔧 Re-checking scanner availability...")
+			// Rebuild scanner map based on config
 			s.scanners = make(map[string]ScannerInterface)
-			
 			if s.config.ScanTypes.IaC {
 				s.scanners["trivy-iac"] = NewTrivyIaCScanner()
 				s.scanners["checkov"] = NewCheckovScanner()
 			}
-			
 			if s.config.ScanTypes.Secrets {
 				s.scanners["trufflehog"] = NewTruffleHogScanner()
 				s.scanners["trivy-secret"] = NewTrivySecretScanner()
 			}
-			
 			if s.config.ScanTypes.SAST {
 				s.scanners["opengrep"] = NewOpenGrepScanner()
 			}
-			
 			if s.config.ScanTypes.SCA {
 				s.scanners["trivy-vuln"] = NewTrivyVulnScanner()
 				s.scanners["grype"] = NewGrypeScanner()
 			}
-			
+			if s.config.ScanTypes.Container {
+				s.scanners["trivy-container"] = NewTrivyContainerScanner()
+			}
 			if s.config.ScanTypes.SBOM {
 				s.scanners["syft"] = NewSyftScanner()
 			}
-			
 			availableScanners = []string{}
 			for name, scanner := range s.scanners {
 				if scanner.IsAvailable() {
@@ -204,7 +255,6 @@ func (s *Scanner) checkScannerAvailability() {
 					delete(s.scanners, name)
 				}
 			}
-			
 			if len(availableScanners) == 0 {
 				fmt.Println("\n❌ Installation completed but scanners still not available.")
 				fmt.Println("\n💡 Manual installation instructions:")
@@ -216,12 +266,10 @@ func (s *Scanner) checkScannerAvailability() {
 				fmt.Println("  • OpenGrep: npm install -g @opengrep/cli")
 				os.Exit(1)
 			}
-			
 			s.results.Metadata.Scanners = availableScanners
 			fmt.Printf("\n✅ Ready to scan with %d scanner(s)\n\n", len(availableScanners))
 			return
 		}
-		
 		fmt.Println("\nManual installation instructions:")
 		fmt.Println("  • Trivy: https://aquasecurity.github.io/trivy/latest/getting-started/installation/")
 		fmt.Println("  • TruffleHog: https://github.com/trufflesecurity/trufflehog")
@@ -403,6 +451,8 @@ func (s *Scanner) appendFindings(findings []Finding) {
 			s.results.SASTResults = append(s.results.SASTResults, f)
 		case ScanTypeSCA:
 			s.results.SCAResults = append(s.results.SCAResults, f)
+		case ScanTypeContainer:
+			s.results.ContainerResults = append(s.results.ContainerResults, f)
 		}
 	}
 }
@@ -413,7 +463,8 @@ func (s *Scanner) calculateSummary() {
 	allFindings := append(s.results.IaCResults, s.results.SecretResults...)
 	allFindings = append(allFindings, s.results.SASTResults...)
 	allFindings = append(allFindings, s.results.SCAResults...)
-	
+	allFindings = append(allFindings, s.results.ContainerResults...)
+
 	s.results.Summary.TotalFindings = len(allFindings)
 	
 	// Count by severity and type
@@ -498,7 +549,8 @@ func (s *Scanner) printBriefFindings() {
 	allFindings := append(s.results.IaCResults, s.results.SecretResults...)
 	allFindings = append(allFindings, s.results.SASTResults...)
 	allFindings = append(allFindings, s.results.SCAResults...)
-	
+	allFindings = append(allFindings, s.results.ContainerResults...)
+
 	if len(allFindings) == 0 {
 		return
 	}
